@@ -2,6 +2,7 @@ import { WebContentsView } from 'electron';
 import { YOUTUBE_PARTITION, isAccountURL, isYouTubeURL } from './contracts.mjs';
 import { accountSnapshot, accountStatusScript } from './account.mjs';
 import { parseMusicLibrary, parsePlaylistTracks, musicLibraryURL, playlistURL } from '../src/library-data.js';
+import { PlaylistCache } from '../src/playlist-cache.js';
 
 function readRenderedLibrary(parse) {
   const roots = [...document.querySelectorAll('ytmusic-section-list-renderer, ytmusic-grid-renderer, ytmusic-shelf-renderer, ytmusic-carousel-shelf-renderer')].filter(node => node.data).map(node => node.localName === 'ytmusic-carousel-shelf-renderer' ? { musicCarouselShelfRenderer: node.data } : node.localName === 'ytmusic-shelf-renderer' ? { musicShelfRenderer: node.data } : node.data);
@@ -28,13 +29,14 @@ const signInError = () => new Error('Sign in to YouTube Music to browse your pla
 
 export function createMusicLibrary({ onIdentity = () => {} } = {}) {
   let work = Promise.resolve(), active, generation = 0;
-  const cache = new Map();
+  const cache = new PlaylistCache();
   function invalidate() { generation++; cache.clear(); active?.webContents?.stop(); }
   async function page(url, script, key) {
     const version = generation;
     const task = async () => {
       if (version !== generation) throw new Error('The account changed. Refresh the library.');
-      if (cache.has(key) && Date.now() - cache.get(key).time < 60000) return cache.get(key).data;
+      const cached = cache.get(key);
+      if (cached) return cached;
       const probe = new WebContentsView({ webPreferences: { partition: YOUTUBE_PARTITION, nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
       active = probe;
       probe.setBounds({ x: 0, y: 0, width: 1100, height: 850 });
@@ -70,8 +72,8 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
         if (key === 'mine' || key === 'home') {
           const identity = accountSnapshot(await contents.executeJavaScript(accountStatusScript));
           if (identity.status !== 'unknown') onIdentity(identity);
-          cache.set(key, { time: Date.now(), data: result });
         }
+        if (!last.tracks || result.tracks.length) cache.set(key, result);
         return result;
       } catch (error) {
         if (error.code === 'ERR_ABORTED') throw new Error('The library request was interrupted. Refresh to try again.');
@@ -91,7 +93,7 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
     async browse(section, refresh = false) {
       const url = musicLibraryURL(section);
       const key = section === 'mine' ? 'mine' : 'home';
-      if (refresh) cache.delete(key);
+      if (refresh) cache.clear();
       const result = await page(url, `(${readRenderedLibrary.toString()})(${parseMusicLibrary.toString()})`, key);
       if (section === 'mixes' && !result.signedIn) throw signInError();
       const items = result.items.filter(item => section === 'mine' || (section === 'mixes' ? item.kind === 'mix' : item.kind === 'playlist'));
@@ -99,7 +101,8 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
       return { items, partial: result.partial };
     },
     async playlist(value) {
-      const result = await page(playlistURL(value), `(${readRenderedPlaylist.toString()})(${parsePlaylistTracks.toString()})`, 'playlist');
+      const url = playlistURL(value);
+      const result = await page(url, `(${readRenderedPlaylist.toString()})(${parsePlaylistTracks.toString()})`, `playlist:${value.source === 'music' ? 'music' : 'youtube'}:${value.id}:${value.seed ?? ''}`);
       if (!result.tracks.length) throw new Error('This playlist is empty or unavailable to your account.');
       return { tracks: result.tracks.slice(0, 500), ids: result.tracks.slice(0, 500).map(track => track.id), partial: result.partial || result.tracks.length > 500 };
     },

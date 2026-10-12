@@ -1,12 +1,14 @@
+import { PlaylistCache } from './playlist-cache.js';
+
 export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
   const $ = selector => document.querySelector(selector);
   const desktop = Boolean(window.yinampDesktop);
-  let section = desktop ? 'mine' : 'discover', request = 0, opening = false, selected = '', signature;
-  const cache = new Map();
+  let section = desktop ? 'mine' : 'discover', request = 0, opening = false, selected = '', signature, visibleData = null;
+  const cache = new PlaylistCache();
   const captions = { mine: 'YOUR CREATED & SAVED MUSIC PLAYLISTS', mixes: 'MIXES FROM YOUR YOUTUBE MUSIC ACCOUNT', discover: 'MUSIC PLAYLISTS SUGGESTED BY YOUTUBE' };
   function message(text, error = false) { $('#library-message').textContent = text; $('#library-message').hidden = !text; $('#library-message').setAttribute('role', error ? 'alert' : 'status'); }
   function render() {
-    const data = cache.get(section), filter = $('#library-filter').value.trim().toLocaleLowerCase();
+    const data = visibleData, filter = $('#library-filter').value.trim().toLocaleLowerCase();
     const items = (data?.items ?? []).filter(item => `${item.title} ${item.subtitle}`.toLocaleLowerCase().includes(filter));
     const root = $('#library-results'); root.replaceChildren();
     $('#library-count').textContent = data ? `${items.length} ${items.length === 1 ? 'PLAYLIST' : 'PLAYLISTS'}${data.partial ? ' · LOADED SO FAR' : ''}` : '';
@@ -33,6 +35,7 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
   }
   const cleanError = error => String(error.message || 'The music library could not load. Try refreshing.').replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
   async function load(refresh = false) {
+    if (refresh) cache.clear();
     const version = ++request, tab = section;
     $('#library-results').setAttribute('aria-busy', 'true'); $('#library-sign-in').hidden = true;
     message(tab === 'mine' ? 'Loading your playlists…' : tab === 'mixes' ? 'Loading your mixes…' : 'Finding music playlists…');
@@ -43,13 +46,14 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
           if (typeof window.yinampDesktop.library !== 'function') throw new Error('Restart Yinamp to load your music library.');
           data = await window.yinampDesktop.library({ action: 'browse', section: tab, refresh });
         } else {
-          const response = await fetch('/api/library?section=discover'); data = await response.json();
+          const response = await fetch(`/api/library?section=discover${refresh ? '&refresh=1' : ''}`); data = await response.json();
           if (!response.ok) throw new Error(data.error);
         }
         if (version !== request) return;
         cache.set(tab, data);
       }
       if (version !== request) return;
+      visibleData = data;
       message(data.partial ? 'Showing playlists loaded from YouTube Music. Refresh for updated suggestions.' : 'Choose a playlist to replace the queue and start listening.');
     } catch (error) {
       if (version !== request) return;
@@ -59,7 +63,7 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
     }
   }
   function select(tab) {
-    section = tab; $('#library-filter').value = '';
+    section = tab; visibleData = cache.get(tab) ?? null; $('#library-filter').value = '';
     for (const button of document.querySelectorAll('[data-library-tab]')) { const active = button.dataset.libraryTab === tab; button.setAttribute('aria-selected', String(active)); button.tabIndex = active ? 0 : -1; }
     $('#library-results').setAttribute('aria-labelledby', `library-tab-${tab}`); $('#library-caption').textContent = captions[tab];
     render(); void load();
@@ -84,7 +88,7 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
     accountChanged(value) {
       if (!['signed-in', 'signed-out'].includes(value.status)) return;
       const next = `${value.status}:${value.avatar?.split('=')[0] ?? ''}`;
-      if (signature && signature !== next) { request++; cache.clear(); selected = ''; render(); void load(true); }
+      if (signature && signature !== next) { request++; cache.clear(); visibleData = null; selected = ''; render(); void load(true); }
       signature = next;
     },
   };

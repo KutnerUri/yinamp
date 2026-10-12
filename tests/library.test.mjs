@@ -4,6 +4,7 @@ import { parseMusicLibrary, parsePlaylistTracks, musicLibraryURL, playlistURL } 
 import { parseMusicLibraryHTML, parseMusicPlaylistHTML } from '../music-library.mjs';
 import { createAppServer } from '../server.mjs';
 import { once } from 'node:events';
+import { PlaylistCache, PLAYLIST_CACHE_MS } from '../src/playlist-cache.js';
 
 const card = (id, title, type = 'MUSIC_PAGE_TYPE_PLAYLIST') => ({ musicTwoRowItemRenderer: { title: { runs: [{ text: title }] }, subtitle: { runs: [{ text: 'Playlist · A listener' }] }, navigationEndpoint: { browseEndpoint: { browseId: `VL${id}`, browseEndpointContextSupportedConfigs: { browseEndpointContextMusicConfig: { pageType: type } } } }, thumbnailRenderer: { musicThumbnailRenderer: { thumbnail: { thumbnails: [{ url: 'https://i.ytimg.com/vi/IHHq6lAgZzs/hqdefault.jpg' }] } } } } });
 const encodedPage = data => `const initialData=[];initialData.push({data:'${JSON.stringify(data).replace(/./g, char => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`)}'});`;
@@ -37,5 +38,15 @@ test('public discovery endpoint uses only YouTube Music and rejects personal lib
   server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
   const base=`http://127.0.0.1:${server.address().port}`;
   const response=await fetch(base+'/api/library?section=discover');assert.equal(response.status,200);assert.equal((await response.json()).items[0].id,'PL_discover');
+  await fetch(base+'/api/library?section=discover');
   assert.equal((await fetch(base+'/api/library?section=mine')).status,400);assert.deepEqual(calls,['https://music.youtube.com/']);
+  await fetch(base+'/api/library?section=discover&refresh=1');assert.equal(calls.length,2);
+});
+test('playlist cache lasts 30 minutes, expires at the boundary, and clears account-scoped results', () => {
+  let time=0;const cache=new PlaylistCache({now:()=>time,maxEntries:2});const data={tracks:[{id:'IHHq6lAgZzs'}]};
+  assert.equal(PLAYLIST_CACHE_MS,1800000);cache.set('private-playlist',data);
+  time=PLAYLIST_CACHE_MS-1;assert.equal(cache.get('private-playlist'),data);
+  time=PLAYLIST_CACHE_MS;assert.equal(cache.get('private-playlist'),undefined);
+  cache.set('mine',data);cache.set('home',data);cache.set('playlist',data);assert.equal(cache.get('mine'),undefined);
+  cache.clear();assert.equal(cache.get('playlist'),undefined);assert.equal(cache.get('home'),undefined);
 });
