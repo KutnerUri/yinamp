@@ -23,9 +23,12 @@ instances exited; the user's running desktop app was left open.
 Private-account library behavior has controlled test coverage; live verification
 against the user's own catalog is recorded separately below.
 
-### 1a. Library artwork and new-only discovery — awaiting confirmation
+### 1a. Library artwork and new-only discovery — authorized, one task at a time
 
-- [ ] Center the card design on 135 × 135 px previews (2.6× the current 52 px artwork), with titles beneath.
+- [x] Center the card design on 135 × 135 px previews (2.6× the previous 52 px artwork), with two-line titles beneath and a taller scrollable gallery. Browser library checks passed; desktop and narrow-layout screenshots inspected.
+- [x] User approved the larger artwork; requested a tighter layout before committing.
+- [x] Reduce card padding and unused title space while keeping 135 px covers. Verified five desktop columns, cover containment, long/Hebrew titles, scrolling, and no horizontal overflow at 414/375/320 px; browser library checks passed and screenshots inspected.
+- [ ] User review and commit of the refined artwork layout before starting the next task.
 - [ ] Remove the repeated owner name from My Playlists; retain track counts.
 - [ ] Exclude created and saved library playlist IDs from Discover, so it presents new suggestions.
 - [ ] Preserve 30-minute caching; refresh the exclusion set together with the catalog on explicit Refresh/account changes.
@@ -35,7 +38,9 @@ The user reported that user info temporarily showed a generic icon with "Signed
 in / Player signed in", and that a full app restart restored it. Possible stale
 development-process/UI state; the cause is not proven. Record as recovered by
 restart, with normal-startup/focus behavior still needing verification. The
-proposed design/discovery changes have not yet received explicit confirmation.
+design/discovery tasks were authorized on 2026-10-12, with one task per review
+and commit checkpoint. Pause after the artwork task; owner metadata and Discover
+filtering remain queued separately.
 
 ## 2. Explore seamless playlist transitions — complete; implementation proposed
 
