@@ -5,6 +5,7 @@ import { parseMusicLibraryHTML, parseMusicPlaylistHTML } from '../music-library.
 import { createAppServer } from '../server.mjs';
 import { once } from 'node:events';
 import { PlaylistCache, PLAYLIST_CACHE_MS } from '../src/playlist-cache.js';
+import { musicSearchBootstrap, musicSearchResult, musicPlaylist } from './fixtures/music.mjs';
 
 const card = (id, title, type = 'MUSIC_PAGE_TYPE_PLAYLIST') => ({ musicTwoRowItemRenderer: { title: { runs: [{ text: title }] }, subtitle: { runs: [{ text: 'Playlist · A listener' }] }, navigationEndpoint: { browseEndpoint: { browseId: `VL${id}`, browseEndpointContextSupportedConfigs: { browseEndpointContextMusicConfig: { pageType: type } } } }, thumbnailRenderer: { musicThumbnailRenderer: { thumbnail: { thumbnails: [{ url: 'https://i.ytimg.com/vi/IHHq6lAgZzs/hqdefault.jpg' }] } } } } });
 const encodedPage = data => `const initialData=[];initialData.push({data:'${JSON.stringify(data).replace(/./g, char => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`)}'});`;
@@ -17,6 +18,53 @@ test('music catalog separates personal mixes from curated playlists and filters 
   assert.equal(musicLibraryURL('mine'), 'https://music.youtube.com/library/playlists');
   assert.equal(playlistURL({id:'PL_own',source:'music'}),'https://music.youtube.com/playlist?list=PL_own');
   assert.throws(()=>playlistURL({id:'bad playlist'}));
+});
+test('validated preset URLs and provider mix/static artwork are preserved', () => {
+  const url = new URL(musicLibraryURL('mixes'));
+  assert.equal(url.pathname, '/browse/FEmusic_mixed_for_you');
+  assert.equal(url.searchParams.get('params'), 'ggMEgAKCBA%3D%3D');
+  assert.equal(musicLibraryURL('discover'), 'https://music.youtube.com/');
+  const mix = card('RDTMAK_art', 'Mix cover');
+  const image = 'https://music.youtube.com/image/mixart?encoded=opaque%2Bvalue&size=600';
+  mix.musicTwoRowItemRenderer.thumbnailRenderer.musicThumbnailRenderer.thumbnail.thumbnails = [{ url: image }];
+  assert.equal(parseMusicLibrary(mix).items[0].thumbnail, image);
+  const staticCard = card('LM', 'Liked music');
+  staticCard.musicTwoRowItemRenderer.thumbnailRenderer.musicThumbnailRenderer.thumbnail.thumbnails = [{ url: 'https://www.gstatic.com/youtube/media/ytm/images/pbg/liked-songs-delhi-576.png' }];
+  assert.ok(parseMusicLibrary(staticCard).items[0].thumbnail);
+  for (const bad of ['https://music.youtube.com/account', 'https://music.youtube.com.evil.example/image/mixart', 'http://music.youtube.com/image/mixart']) {
+    mix.musicTwoRowItemRenderer.thumbnailRenderer.musicThumbnailRenderer.thumbnail.thumbnails = [{ url: bad }];
+    assert.equal(parseMusicLibrary(mix).items[0].thumbnail, '');
+  }
+});
+test('song and video cards carrying radio IDs never become mixes or consume real mix IDs', () => {
+  const song = (id, title, videoId = 'IHHq6lAgZzs') => ({ musicTwoRowItemRenderer: {
+    title: { runs: [{ text: title }] },
+    navigationEndpoint: { watchEndpoint: { videoId, playlistId: id, watchEndpointMusicSupportedConfigs: { watchEndpointMusicConfig: { musicVideoType: 'MUSIC_VIDEO_TYPE_ATV' } } } },
+  } });
+  const responsive = { musicResponsiveListItemRenderer: {
+    playlistItemData: { videoId: 'c8fu7tkc2Iw' },
+    flexColumns: [{ musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'Good Stuff' }] } } }],
+    navigationEndpoint: { watchEndpoint: { videoId: 'c8fu7tkc2Iw', playlistId: 'RDAMVMc8fu7tkc2Iw' } },
+  } };
+  const overlayOnly = { musicTwoRowItemRenderer: {
+    title: { runs: [{ text: 'A video recommendation' }] },
+    overlay: { musicItemThumbnailOverlayRenderer: { content: { musicPlayButtonRenderer: { playNavigationEndpoint: { watchEndpoint: { videoId: 'M7lc1UVf-VE', playlistId: 'RDVMM7lc1UVf-VE' } } } } } },
+  } };
+  const data = { contents: [song('RDAMVMIHHq6lAgZzs', 'August'), responsive, overlayOnly,
+    song('RDTMAK_shared', 'A song from Supermix'), card('RDTMAK_shared', 'My Supermix'), card('RDCLAK_curated', 'Curated music')] };
+  assert.deepEqual(parseMusicLibrary(data, 'mixes').items.map(item => item.title), ['My Supermix']);
+  assert.deepEqual(parseMusicLibrary(data).items.map(item => item.title), ['My Supermix', 'Curated music']);
+  assert.deepEqual(parseMusicLibrary(data, 'discover').items.map(item => item.title), ['Curated music']);
+  // Desktop injects this self-contained parser into the YouTube view.
+  const injected = (0, eval)(`(${parseMusicLibrary.toString()})`);
+  assert.deepEqual(injected(data, 'mixes'), parseMusicLibrary(data, 'mixes'));
+});
+test('playlist navigation stays a mix even when its play overlay contains a seed song', () => {
+  const mix = card('RDTMAK_seeded', 'Seeded Supermix');
+  mix.musicTwoRowItemRenderer.thumbnailOverlay = { musicItemThumbnailOverlayRenderer: { content: { musicPlayButtonRenderer: { playNavigationEndpoint: { watchEndpoint: { videoId: 'IHHq6lAgZzs', playlistId: 'RDTMAK_seeded' } } } } } };
+  const direct = { musicTwoRowItemRenderer: { title: { simpleText: 'Direct mix' }, navigationEndpoint: { watchPlaylistEndpoint: { playlistId: 'RDMM_direct' } } } };
+  const watch = { musicTwoRowItemRenderer: { title: { simpleText: 'Mix without a seed' }, navigationEndpoint: { watchEndpoint: { playlistId: 'RDTMAK_unseeded' } } } };
+  assert.deepEqual(parseMusicLibrary({ contents: [mix, direct, watch] }, 'mixes').items.map(item => item.id), ['RDTMAK_seeded', 'RDMM_direct', 'RDTMAK_unseeded']);
 });
 test('playlist reading keeps source order, removes duplicates and excludes recommended songs', () => {
   const row = (id, title) => ({ musicResponsiveListItemRenderer: { playlistItemData: { videoId: id }, flexColumns: [{ musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: title }] } } }], fixedColumns: [{ musicResponsiveListItemFixedColumnRenderer: { text: { runs: [{ text: '3:13' }] } } }] } });
@@ -32,15 +80,16 @@ test('public HTML decoding never executes scripts or returns session data', () =
   assert.equal(globalThis.__libraryExecuted,false); assert.equal(result.items.length,1);assert.ok(!JSON.stringify(result).includes('do-not-return'));delete globalThis.__libraryExecuted;
   assert.throws(()=>parseMusicLibraryHTML('<html>No listing</html>'));
 });
-test('public discovery endpoint uses only YouTube Music and rejects personal library requests', async t => {
+test('public discovery uses typed Music queries, caches the catalog and rejects personal requests', async t => {
   const calls=[];
-  const server=createAppServer({fetcher:async url=>{calls.push(String(url));return new Response(encodedPage({contents:[card('PL_discover','Community music')]}));}});
+  const server=createAppServer({fetcher:async (url, options)=>{calls.push({url:String(url),method:options?.method});return options?.method==='POST'?Response.json(musicSearchResult([musicPlaylist('PL_discover','Community music')])):new Response(musicSearchBootstrap());}});
   server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
   const base=`http://127.0.0.1:${server.address().port}`;
   const response=await fetch(base+'/api/library?section=discover');assert.equal(response.status,200);assert.equal((await response.json()).items[0].id,'PL_discover');
+  assert.equal(calls.length,4);assert.ok(calls.every(call=>new URL(call.url).hostname==='music.youtube.com'));
   await fetch(base+'/api/library?section=discover');
-  assert.equal((await fetch(base+'/api/library?section=mine')).status,400);assert.deepEqual(calls,['https://music.youtube.com/']);
-  await fetch(base+'/api/library?section=discover&refresh=1');assert.equal(calls.length,2);
+  assert.equal((await fetch(base+'/api/library?section=mine')).status,400);assert.equal(calls.length,4);
+  await fetch(base+'/api/library?section=discover&refresh=1');assert.equal(calls.length,8);
 });
 test('playlist cache lasts 30 minutes, expires at the boundary, and clears account-scoped results', () => {
   let time=0;const cache=new PlaylistCache({now:()=>time,maxEntries:2});const data={tracks:[{id:'IHHq6lAgZzs'}]};

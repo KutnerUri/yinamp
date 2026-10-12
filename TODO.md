@@ -23,24 +23,148 @@ instances exited; the user's running desktop app was left open.
 Private-account library behavior has controlled test coverage; live verification
 against the user's own catalog is recorded separately below.
 
-### 1a. Library artwork and new-only discovery — authorized, one task at a time
+### 1a. Library artwork — complete and committed
 
 - [x] Center the card design on 135 × 135 px previews (2.6× the previous 52 px artwork), with two-line titles beneath and a taller scrollable gallery. Browser library checks passed; desktop and narrow-layout screenshots inspected.
 - [x] User approved the larger artwork; requested a tighter layout before committing.
 - [x] Reduce card padding and unused title space while keeping 135 px covers. Verified five desktop columns, cover containment, long/Hebrew titles, scrolling, and no horizontal overflow at 414/375/320 px; browser library checks passed and screenshots inspected.
-- [ ] User review and commit of the refined artwork layout before starting the next task.
-- [ ] Remove the repeated owner name from My Playlists; retain track counts.
-- [ ] Exclude created and saved library playlist IDs from Discover, so it presents new suggestions.
-- [ ] Preserve 30-minute caching; refresh the exclusion set together with the catalog on explicit Refresh/account changes.
-- [ ] Check account-info recovery during a fresh start and when returning focus; avoid replacing a known player avatar with incomplete library identity metadata.
+- [x] User approved the compact layout as-is. Committed in `5df5fbd` (`large media`).
+
+### 1b. Library follow-ups — queued, one task per review and commit
+
+Updated priorities from the user's latest feedback. Registration is complete;
+queuing a feature does not mark its implementation complete. Present a plan and
+obtain confirmation before a substantial implementation, per the user's
+AGENTS.md instruction. Pause after each implemented task for behavior review
+and the user's commit before starting another.
+
+#### 0. Retrieval correction — real-account review failed; prototype proposed
+
+- [x] Audit actual source URLs/cache grouping and reproduce an owned playlist surviving Discover filtering.
+- [x] Validate YouTube Music category queries: Community playlists returns 20 playlists with no songs; Songs returns 20 songs with no playlists. Follow returned continuations: another 20 playlists and 18 new song IDs.
+- [x] Confirm that search-page bootstrap HTML remains mixed despite category URL parameters; backend category requests are required for the demonstrated typed results.
+- [x] Record the insufficient test coverage and source/pagination limitations in `LIBRARY-VALIDATION.md`. No production fetch behavior changed in this investigation.
+- [x] User authorized retrieval correction on 2026-10-12 and instructed that bug reports should be mediated through this file rather than interrupting the active task.
+- [x] Implement a typed public query adapter with explicit continuation pages. Signed-in tabs instead retain YouTube shelf membership and follow returned preset browse IDs/parameters; no keyword query substitutes for the personalized feed. Discover excludes known created/saved library IDs. Thirty-minute caching and account-generation guards remain.
+- [x] Normalize provider bootstrap to `hl=en`, then use returned opaque category parameters and collection IDs; user UI labels are not category query terms. Mobile and web source availability are not assumed identical.
+- [x] Verify 52 tests, controlled Electron source expansion/continuation and zero signed-in keyword searches, browser behavior/narrow layout, and live public retrieval of 112 playlists across category pages.
+- [x] User reviewed the implementation: prolonged "Loading your mixes…", only five mixes, missing artwork, and Discover failing with "A community or recommended playlist collection could not be identified in this YouTube Music response." This fails the intended account behavior despite controlled checks passing.
+- [x] Validate/correct the real source mapping, latency, and mix thumbnail shapes using the actual account and production adapter; see current three-tab evidence below. Behavior review remains pending.
+- [x] User authorized the prototype and use of Yinamp’s own app session on 2026-10-12. Prototype scope in `experiments/music-sources/`: observe actual YouTube Music browse/search commands, measure request timing and raw result counts, compare source categories and pagination, and verify artwork metadata before normalization. Keep account credentials/cookies/authorization headers out of exported diagnostics.
+- [x] Integrate the validated three sources after explicit user approval; keep Discovery broad and defer further filtering.
+- [ ] Obtain fresh user behavior review; commit remains a user checkpoint.
+- [x] Validate the returned expanded mix collection: 49 cards, no next continuation, all 49 covers load. This does not claim every possible account mix is enumerated.
+
+### Actual-client prototype evidence — 2026-10-12 first pass
+
+- [x] Run five successful real-account prototype passes inside the authorized 15-minute timebox; production player/retrieval files unchanged.
+- [x] Validate `FEmusic_liked_playlists`: 24 raw cards / 23 unique navigable Library entries, 272–836 ms. Includes special Library entries; ordinary created/saved playlist count not independently established. Scrolling produced no next page; its `reloadContinuationData` is not result pagination.
+- [x] Validate `FEmusic_mixed_for_you` with `ggMEgAKCBA%3D%3D`: 49 cards in all five runs, 597–970 ms, no returned continuation. All 49 rendered covers loaded after scrolling; 47 use `music.youtube.com/image/mixart`. The experimental image allowlist had rejected this host/path. Production artwork remains unchanged.
+- [x] Observe real Home pagination through URL `ctoken`/`continuation` parameters with context-only JSON bodies. Latest five pages: 37/27/25/30/10 cards, 194–317 ms each; final page has no next continuation.
+- [x] Confirm Community shelf has 8–10 cards and no standalone browse/More command in observed responses. UUID shelf IDs change; no language-independent Community-only selector validated.
+- [x] Click recommended-playlist More: `FEmusic_moods_and_genres` / `ggMEgAK5Ag%3D%3D` returned a 41-button directory, not a playlist collection (366 ms). Do not equate that command with an expanded recommendation feed.
+- [x] Compare actual client mixes with cloned-session minimal-context request (`credentials=include`): HTTP 401 / 102 ms versus 49-card client success. Required additional auth/context is unresolved; no credential values, authorization headers, or full account contexts inspected/exported.
+- [x] Broaden safe observation and record eight deduplicated API endpoints; validate all eight client search categories and actual continuation pages. Community search: 20 + 20 cards (19 new IDs); Featured search: 20 + 4, then terminal. Query searches are not personalized presets. Parameter suffixes vary; use returned commands.
+- [ ] Validate a stable Community-only preset/marker and playlist-only recommendation source before production integration.
+- [ ] Implement the demonstrated mapping/artwork correction only in the separately authorized production checkpoint, then obtain real-account behavior review. Current controlled tests alone do not establish source correctness.
+
+Evidence and query inventory: `experiments/music-sources/INVESTIGATION-2026-10-12.md`;
+ignored local `reports/latest.json`, four named run archives and `reports/api-inventory.json`.
+The prototype now chooses known More commands by ID/params, scopes DOM roots to
+visible active content, and distinguishes reload commands from next-page evidence.
+`hl=en` still produced locale `iw`; translated titles cannot be a stable source selector.
+Three pre-startup SIGABRT launches succeeded on retry; causation remains unresolved.
+
+### Three-tab production checkpoint — implemented, behavior review pending
+
+- [x] User explicitly approved implementation after verifying the separate queries and Discovery pagination; defer further filtering.
+- [x] Use the Library listing, direct expanded Mixes preset, and complete available Home playlist feed. Remove title-based source selection and signed-in cookie-only continuation requests.
+- [x] Preserve provider mix/static artwork URLs. Real interface-session check loaded all 49 mix covers with zero failures.
+- [x] Real-account final results: My Playlists 23 cards / 3.6 s; Mixes 49 / 3.1 s; Discovery 47 / 5.8 s, of which 46 have recognized artwork. All terminal in this run; Discovery counts vary with the feed. Cached repeats immediate; Refresh/account invalidation fetched fresh data.
+- [x] Pass 55 regression tests and browser/narrow-layout checks. Controlled desktop checks pass for source selection, actual-client continuation behavior, broader Discovery membership, preserved playback/queue on failed import, cache Refresh and account invalidation.
+- [ ] User reviews the restarted main app. Additional membership filtering remains deferred. No Git operation performed.
+
+Evidence: `LIBRARY-VALIDATION.md` and ignored
+`experiments/music-sources/reports/production-validation.json`.
+
+#### 1. Mixes should contain only mixes
+
+- [x] Reproduced the parser issue: song/video cards carrying radio playlist IDs were classified as mixes and could consume the ID of a genuine mix before it was parsed.
+- [x] Use playlist navigation versus single-track metadata to exclude song/video cards, including responsive rows and play overlays; preserve genuine mixes and curated playlists. All 47 tests pass. Isolated Electron checks confirm song cards are absent, a genuine mix plays, queue replacement/cache refresh still work, and the test app exits.
+- [x] User reports improvement and five mixes after the parser correction. This confirms the observed filtering improvement, not catalog completeness; the retrieval audit above identifies the remaining source problem.
+- [ ] User behavior review and commit checkpoint.
+
+Current source of truth: My Playlists uses the Library listing; Mixes uses the
+validated expanded mix collection; Discovery uses all playlist cards from the
+personalized Home feed. The user approved this broader three-tab behavior and
+deferred additional filtering. Lists may overlap. Title-based category selection
+was removed; public/signed-out Community/Featured search remains separate.
+See the latest production-adapter evidence in `LIBRARY-VALIDATION.md`.
+
+#### 2. Show the active playlist — requested; confirm implementation plan
+
+- [ ] Show a compact active-playlist name above the track queue and identify the matching card in Music Library, when the queue has a known playlist source.
+- [ ] Persist playlist identity across restarts; retain it through track changes and pause, replace it only after a successful playlist load, and clear it when the queue is emptied or replaced with an unrelated queue.
+- [ ] Preserve the previous active playlist on failed/cancelled loads. Avoid claiming that a restored, paused queue is currently playing.
+- [ ] Existing saved queues have no playlist-source identity; explain that opening a playlist once establishes it instead of guessing from song titles.
+- [ ] Verify saved-state/browser/desktop behavior, then pause for user review and commit.
+
+#### 3. Discover should contain new suggestions
+
+- [x] Earlier checkpoint implemented exclusions; superseded by the user’s approved broader Discovery feed after actual-client investigation.
+- [ ] Reconsider new-only/library exclusions and Community filters after review of the current three tabs; they are not enabled in the current broad feed.
+- [x] Preserve 30-minute caching, refresh source/library/exclusion catalogs together on Refresh/account changes, and identify partial results.
+- [ ] User behavior review and commit checkpoint.
+
+#### 4. Songs in a separate tab
+
+- [ ] Propose a minimal Songs tab for individual music tracks removed from Mixes, then confirm the implementation plan.
+- [ ] Implement song classification and playback with distinct queue behavior from playlist replacement; keep podcasts excluded.
+- [ ] User behavior review and commit checkpoint.
+
+#### 5. Loaders in appropriate locations
+
+- [ ] Show loading feedback where work is happening: initial catalog/tab loads, catalog refresh, playlist opening, and search when added.
+- [ ] Keep cached content visible during background refresh where appropriate; make active/loading, error, and empty states clear without shifting the layout or leaving stale spinners.
+- [ ] User behavior review and commit checkpoint.
+
+#### 6. Search YouTube for playlists and songs
+
+- [ ] Explore an actual YouTube/YouTube Music search source and autocomplete source; present and confirm the implementation plan before substantial changes.
+- [ ] Keep search inside Music Library using the existing "Find a playlist" input: typing filters the current in-library view immediately; pressing Enter submits an actual online search. Preserve the in-library filter rather than replacing it.
+- [ ] Make online search results distinct from filtered library results, with a simple return to the prior library view; searching itself must not replace the playback queue.
+- [ ] Add autocomplete as an enhancement to this flow if supported: keyboard-accessible suggestions, bounded/debounced requests, and cancellation of stale query responses; preserve Enter-to-search and immediate local filtering.
+- [ ] Support playlist search such as "indie roadtrip" and song search such as "smooth criminal", with clearly separated result types and no podcasts.
+- [ ] Preserve playback while searching, replace the queue only on successful playlist opening, and define single-song selection behavior together with the Songs tab.
+- [ ] Check loading, no-results, failure, account/session isolation, and suitable search-result caching.
+- [ ] User behavior review and commit checkpoint.
+
+#### 7. Repeated metadata — low priority; usefulness still to be decided
+
+- [ ] Reconsider repeated owner names in My Playlists and generic type labels across tabs (e.g. "mix" within Mixes, "song" within Songs).
+- [ ] Keep useful metadata such as track counts, artist names, or community creators. Do not remove all metadata automatically; the user noted that some may be useful.
+- [ ] User behavior review and commit checkpoint if a cleanup is selected.
+
+#### 8. Playback leaves the queue — reported; queued after retrieval
+
+- [ ] Compare the actual YouTube content ID with the selected Yinamp track and reproduce unexpected videos during playlist progression; YouTube auto-next is a hypothesis, not a proven cause.
+- [ ] Disable/control YouTube auto-next while Yinamp owns the queue and prevent unexpected content navigation from desynchronizing playback.
+- [ ] Verify endings, shuffle/repeat, and advertisements; review and commit separately. This new report does not silently resume the earlier deferred ad bug.
+
+#### 9. Artist and album in the player — metadata check complete; UI queued
+
+- [x] Inspect current metadata pipeline. Music song search results explicitly tag artist/album runs; examples include Michael Jackson / Bad (25th Anniversary) and Michael Jackson / Number Ones. Playlist rows expose tagged artists but may lack albums.
+- [x] Confirm current parsing/persistence drops these fields, desktop snapshots contain only playback state, and the video-title lookup's author/channel is ignored by the UI.
+- [ ] Preserve artist/album metadata from typed Music results and playlist rows, with channel fallback clearly distinct from a verified artist. Display title, artist, and album when available, replacing the prominent YouTube/Desktop labels while keeping essential playback status/duration.
+- [ ] Check any current-page/media-session enrichment against the selected content ID, skip advertisements, and hide unavailable fields rather than guessing an album from the playlist title.
+- [ ] Present implementation scope before this separate UI/persistence task, then review and commit after approval.
 
 The user reported that user info temporarily showed a generic icon with "Signed
 in / Player signed in", and that a full app restart restored it. Possible stale
 development-process/UI state; the cause is not proven. Record as recovered by
-restart, with normal-startup/focus behavior still needing verification. The
-design/discovery tasks were authorized on 2026-10-12, with one task per review
-and commit checkpoint. Pause after the artwork task; owner metadata and Discover
-filtering remain queued separately.
+restart, with normal-startup/focus behavior still needing verification. Avoid
+replacing a known player avatar with incomplete library identity metadata;
+account integration checks remain in section 4 below.
 
 ## 2. Explore seamless playlist transitions — complete; implementation proposed
 
@@ -132,3 +256,9 @@ app integration, not a request to sign in again unnecessarily.
 
 These proposals are recorded for completeness and are not inserted ahead of the
 authorized execution queue.
+
+Pre-commit cleanup (2026-10-12): removed generated diagnostic/report files, raw
+response captures, screenshots and inactive QA profiles. Retained experimental
+source, reusable QA scripts and sanitized findings; lab usage is documented in
+`experiments/music-sources/README.md`. Referenced ignored reports are regenerated
+on demand.

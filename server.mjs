@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve, extname, sep } from 'node:path';
 import { parsePlaylistListing } from './playlist-listing.mjs';
-import { parseMusicLibraryHTML, parseMusicPlaylistHTML } from './music-library.mjs';
+import { parseMusicPlaylistHTML } from './music-library.mjs';
+import { discoverMusicPlaylists } from './music-query.mjs';
 import { PlaylistCache } from './src/playlist-cache.js';
 
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
@@ -32,11 +33,7 @@ export function createAppServer({ fetcher = fetch } = {}) {
           if (url.searchParams.get('refresh') === '1') { catalogCache.clear(); playlistCache.clear(); }
           const cached = catalogCache.get('discover');
           if (cached) return send(200, JSON.stringify(cached));
-          const upstream = await fetcher('https://music.youtube.com/', { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': request.headers['user-agent'] || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36' } });
-          if (!upstream.ok) throw new Error('Music suggestions could not load. Try refreshing.');
-          const html = await upstream.text();
-          if (html.length > 5000000) throw new Error('This music listing is too large.');
-          const data = parseMusicLibraryHTML(html); catalogCache.set('discover', data);
+          const data = await discoverMusicPlaylists({ fetcher, signal: AbortSignal.timeout(30000) }); catalogCache.set('discover', data);
           return send(200, JSON.stringify(data));
         } catch { return send(502, JSON.stringify({ error: 'Music suggestions could not load. Try refreshing.' })); }
       }

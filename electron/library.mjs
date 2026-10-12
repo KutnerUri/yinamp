@@ -1,17 +1,11 @@
-import { WebContentsView } from 'electron';
+import { BrowserWindow, WebContentsView, session } from 'electron';
 import { YOUTUBE_PARTITION, isAccountURL, isYouTubeURL } from './contracts.mjs';
 import { accountSnapshot, accountStatusScript } from './account.mjs';
-import { parseMusicLibrary, parsePlaylistTracks, musicLibraryURL, playlistURL } from '../src/library-data.js';
+import { parsePlaylistTracks, musicLibraryURL, playlistURL } from '../src/library-data.js';
+import { discoverMusicPlaylists } from '../music-query.mjs';
+import { collectMusicCatalog } from './music-catalog.mjs';
 import { PlaylistCache } from '../src/playlist-cache.js';
 
-function readRenderedLibrary(parse) {
-  const roots = [...document.querySelectorAll('ytmusic-section-list-renderer, ytmusic-grid-renderer, ytmusic-shelf-renderer, ytmusic-carousel-shelf-renderer')].filter(node => node.data).map(node => node.localName === 'ytmusic-carousel-shelf-renderer' ? { musicCarouselShelfRenderer: node.data } : node.localName === 'ytmusic-shelf-renderer' ? { musicShelfRenderer: node.data } : node.data);
-  if (!roots.length) for (const node of document.querySelectorAll('ytmusic-two-row-item-renderer')) if (node.data) roots.push({ musicTwoRowItemRenderer: node.data });
-  const loggedIn = globalThis.ytcfg?.get?.('LOGGED_IN');
-  const signedIn = typeof loggedIn === 'boolean' ? loggedIn : Boolean(document.querySelector('ytmusic-nav-bar #avatar-btn, ytmusic-nav-bar img[alt="Avatar image"]'));
-  const result = parse(roots, 'mine');
-  return { ...result, signedIn, ready: roots.length > 0 || Boolean(document.querySelector('ytmusic-browse-response, ytmusic-library-landing-page-renderer')), height: document.documentElement.scrollHeight };
-}
 function readRenderedPlaylist(parse) {
   const roots = [globalThis.ytInitialData?.contents];
   for (const node of document.querySelectorAll('ytmusic-playlist-shelf-renderer')) if (node.data) { roots.push(node.data); if (Array.isArray(node.data.contents)) roots.push({ musicPlaylistShelfRenderer: node.data }); }
@@ -23,21 +17,27 @@ function readRenderedPlaylist(parse) {
   const result = parse(roots);
   return { ...result, ready: result.tracks.length > 0 || Boolean(document.querySelector('ytmusic-message-renderer, ytd-background-promo-renderer, ytd-alert-with-button-renderer')), height: document.documentElement.scrollHeight };
 }
-const scrollScript = `(()=>{window.scrollTo(0,document.documentElement.scrollHeight);for(const node of document.querySelectorAll('ytmusic-player-queue #contents, ytmusic-app #layout, ytmusic-browse-response'))if(node.scrollHeight>node.clientHeight)node.scrollTop=node.scrollHeight;})()`;
+const scrollScript = `(()=>{window.scrollTo(0,document.documentElement.scrollHeight);for(const node of document.querySelectorAll('ytmusic-player-queue #contents, ytmusic-app #content, ytmusic-app #layout, ytmusic-browse-response'))if(node.scrollHeight>node.clientHeight)node.scrollTop=node.scrollHeight;})()`;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-const signInError = () => new Error('Sign in to YouTube Music to browse your playlists and mixes.');
+const signInError = () => Object.assign(new Error('Sign in to YouTube Music to browse your playlists and mixes.'), { code: 'SIGN_IN_REQUIRED' });
 
 export function createMusicLibrary({ onIdentity = () => {} } = {}) {
   let work = Promise.resolve(), active, generation = 0;
   const cache = new PlaylistCache();
+  const fetcher = (url, options) => session.fromPartition(YOUTUBE_PARTITION).fetch(url, options);
+
   function invalidate() { generation++; cache.clear(); active?.webContents?.stop(); }
   async function page(url, script, key) {
+    const target = new URL(url);
     const version = generation;
     const task = async () => {
       if (version !== generation) throw new Error('The account changed. Refresh the library.');
       const cached = cache.get(key);
       if (cached) return cached;
-      const probe = new WebContentsView({ webPreferences: { partition: YOUTUBE_PARTITION, nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
+      const options = { partition: YOUTUBE_PARTITION, nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false };
+      const probe = ['mine', 'mixes', 'home'].includes(key)
+        ? new BrowserWindow({ show: false, width: 1100, height: 850, webPreferences: options })
+        : new WebContentsView({ webPreferences: options });
       active = probe;
       probe.setBounds({ x: 0, y: 0, width: 1100, height: 850 });
       const contents = probe.webContents;
@@ -45,9 +45,19 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
       contents.setWindowOpenHandler(() => ({ action: 'deny' }));
       const guard = (event, target, _inPlace, main) => { if (event.isMainFrame !== false && main !== false && !isAccountURL(target)) event.preventDefault(); };
       contents.on('will-navigate', guard); contents.on('will-redirect', guard);
-      const timer = setTimeout(() => { if (!contents.isDestroyed()) contents.close(); }, 22000);
+      const timer = setTimeout(() => { if (!contents.isDestroyed()) contents.close(); }, 35000);
       try {
-        await contents.loadURL(url);
+        if (['mine', 'mixes', 'home'].includes(key)) {
+          const result = await collectMusicCatalog(contents, key === 'home' ? 'discover' : key, () => version === generation);
+          if (!result.signedIn && key !== 'home') throw signInError();
+          const identity = accountSnapshot(await contents.executeJavaScript(accountStatusScript));
+          if (version !== generation) throw new Error('The account changed. Refresh the library.');
+          if (identity.status !== 'unknown') onIdentity(identity);
+          if (version !== generation) throw new Error('The account changed. Refresh the library.');
+          cache.set(key, result);
+          return result;
+        }
+        await contents.loadURL(target.href);
         if (!isYouTubeURL(contents.getURL())) throw signInError();
         const start = Date.now(), collected = new Map();
         let last, stale = 0, lastHeight = 0;
@@ -60,7 +70,7 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
           if (last.ready) {
             if (last.signedIn === false && key === 'mine') throw signInError();
             if (collected.size === before && last.height === lastHeight) stale++; else stale = 0;
-            if (stale >= 3 || collected.size >= (last.tracks ? 500 : 1000)) break;
+            if (stale >= 6 && Date.now() - start >= 4000 || collected.size >= (last.tracks ? 500 : 1000)) break;
             await contents.executeJavaScript(scrollScript);
           }
           lastHeight = last.height;
@@ -68,11 +78,15 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
         }
         if (version !== generation) throw new Error('The account changed. Refresh the library.');
         if (!last?.ready) throw new Error('YouTube could not load this music listing. Try refreshing.');
-        const result = { ...last, [last.tracks ? 'tracks' : 'items']: [...collected.values()], partial: last.partial === true };
+        let partial = last.partial === true || Date.now() - start >= 18000;
+        if (version !== generation) throw new Error('The account changed. Refresh the library.');
+        const result = { ...last, [last.tracks ? 'tracks' : 'items']: [...collected.values()], partial };
         if (key === 'mine' || key === 'home') {
           const identity = accountSnapshot(await contents.executeJavaScript(accountStatusScript));
+          if (version !== generation) throw new Error('The account changed. Refresh the library.');
           if (identity.status !== 'unknown') onIdentity(identity);
         }
+        if (version !== generation) throw new Error('The account changed. Refresh the library.');
         if (!last.tracks || result.tracks.length) cache.set(key, result);
         return result;
       } catch (error) {
@@ -92,13 +106,23 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
     invalidate,
     async browse(section, refresh = false) {
       const url = musicLibraryURL(section);
-      const key = section === 'mine' ? 'mine' : 'home';
+      const version = generation;
+      const cached = !refresh && cache.get(`catalog:${section}`);
+      if (cached) return cached;
+      const key = section === 'discover' ? 'home' : section;
       if (refresh) cache.clear();
-      const result = await page(url, `(${readRenderedLibrary.toString()})(${parseMusicLibrary.toString()})`, key);
-      if (section === 'mixes' && !result.signedIn) throw signInError();
-      const items = result.items.filter(item => section === 'mine' || (section === 'mixes' ? item.kind === 'mix' : item.kind === 'playlist'));
-      if (section === 'discover') items.sort((a, b) => Number(b.community) - Number(a.community));
-      return { items, partial: result.partial };
+      const result = await page(url, null, key);
+      if (!result.signedIn && section === 'discover') {
+        const data = await discoverMusicPlaylists({ fetcher, signal: AbortSignal.timeout(30000) });
+        if (version !== generation) throw new Error('The account changed. Refresh the library.');
+        cache.set(`catalog:${section}`, data); return data;
+      }
+      // Membership comes from the requested collection, not translated shelf titles.
+      // Discovery keeps all playlist cards in Home, including mixes. Further source
+      // filters can be added after the user reviews this broader feed.
+      const data = { items: result.items, partial: result.partial };
+      if (version !== generation) throw new Error('The account changed. Refresh the library.');
+      cache.set(`catalog:${section}`, data); return data;
     },
     async playlist(value) {
       const url = playlistURL(value);

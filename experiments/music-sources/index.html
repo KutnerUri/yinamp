@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Music source lab</title><meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src https:; style-src 'self'"><link rel="stylesheet" href="style.css"></head><body>
+<h1>YouTube Music source lab</h1><p>Observe the site's own preset browse commands, response times, raw results, and artwork.</p>
+<nav><button data-route="home">Home</button><button data-route="library">Library</button><button data-route="explore">Explore</button><button id="snapshot">Snapshot</button><button id="run">Run checks</button></nav>
+<form id="search"><input id="query" placeholder="Optional keyword search"><button>Search</button></form>
+<p id="status" role="status">Opening the app-session snapshot…</p><h2>Available source actions</h2><div id="sources"></div>
+<h2>Actual API requests</h2><div id="requests"></div><h2>Latest rendered data</h2><pre id="summary"></pre><div id="cards"></div><script type="module" src="ui.js"></script></body></html>

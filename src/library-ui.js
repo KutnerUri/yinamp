@@ -5,7 +5,7 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
   const desktop = Boolean(window.yinampDesktop);
   let section = desktop ? 'mine' : 'discover', request = 0, opening = false, selected = '', signature, visibleData = null;
   const cache = new PlaylistCache();
-  const captions = { mine: 'YOUR CREATED & SAVED MUSIC PLAYLISTS', mixes: 'MIXES FROM YOUR YOUTUBE MUSIC ACCOUNT', discover: 'MUSIC PLAYLISTS SUGGESTED BY YOUTUBE' };
+  const captions = { mine: 'YOUR CREATED & SAVED MUSIC PLAYLISTS', mixes: 'MIXES FROM YOUR YOUTUBE MUSIC ACCOUNT', discover: desktop ? 'PLAYLISTS FROM YOUR YOUTUBE MUSIC HOME FEED' : 'COMMUNITY & FEATURED MUSIC PLAYLISTS' };
   function message(text, error = false) { $('#library-message').textContent = text; $('#library-message').hidden = !text; $('#library-message').setAttribute('role', error ? 'alert' : 'status'); }
   function render() {
     const data = visibleData, filter = $('#library-filter').value.trim().toLocaleLowerCase();
@@ -54,7 +54,7 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
       }
       if (version !== request) return;
       visibleData = data;
-      message(data.partial ? 'Showing playlists loaded from YouTube Music. Refresh for updated suggestions.' : 'Choose a playlist to replace the queue and start listening.');
+      message(data.partial ? 'Showing the available portion of this collection. Refresh to retry loading more.' : 'Choose a playlist to replace the queue and start listening.');
     } catch (error) {
       if (version !== request) return;
       const text = cleanError(error); message(text, true); $('#library-sign-in').hidden = !desktop || !/sign in/i.test(text);

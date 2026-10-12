@@ -4,7 +4,7 @@ export function parseMusicLibrary(data, section = 'mine') {
   if (!['mine', 'mixes', 'discover'].includes(section)) throw new Error('Unknown library view.');
   const text = value => typeof value === 'string' ? value : value?.simpleText ?? value?.content ?? value?.runs?.map(run => run.text ?? '').join('') ?? '';
   const photo = value => {
-    try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && ['.ytimg.com', '.googleusercontent.com', '.ggpht.com'].some(host => url.hostname.endsWith(host)) ? url.href : ''; } catch { return ''; }
+    try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && (url.hostname === 'music.youtube.com' && url.pathname === '/image/mixart' || ['.ytimg.com', '.googleusercontent.com', '.ggpht.com', '.gstatic.com'].some(host => url.hostname.endsWith(host))) ? url.href : ''; } catch { return ''; }
   };
   const items = [], seen = new Set(), visited = new WeakSet();
   let more = false, nodes = 0;
@@ -15,7 +15,13 @@ export function parseMusicLibrary(data, section = 'mine') {
     const title = text(value.title ?? value.metadata?.lockupMetadataViewModel?.title);
     const subtitle = text(value.subtitle);
     if (/PODCAST|EPISODE|ALBUM|ARTIST/i.test(pageType) || /PODCAST|EPISODE/i.test(value.contentType ?? '') || /podcast|פודקאסט/i.test(`${context} ${title} ${subtitle}`)) return;
-    const play = value.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint ?? {};
+    const play = (value.thumbnailOverlay ?? value.overlay)?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint ?? {};
+    const playlistNavigation = Boolean(endpoint.watchPlaylistEndpoint?.playlistId || browse?.browseId?.startsWith('VL') || /PLAYLIST|MIX|AUTOMIX/i.test(pageType));
+    const watch = endpoint.watchEndpoint ?? play.watchEndpoint;
+    // A song can start a radio queue. Its RD playlist ID does not make the card a mix.
+    // Playlist cards can still carry a seed video in their play overlay.
+    if (value.playlistItemData?.videoId || /SONG|VIDEO/i.test(`${pageType} ${value.contentType ?? ''}`) ||
+        !playlistNavigation && (watch?.videoId || watch?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType)) return;
     const id = endpoint.watchPlaylistEndpoint?.playlistId ?? endpoint.watchEndpoint?.playlistId ?? (browse?.browseId?.startsWith('VL') ? browse.browseId.slice(2) : null) ?? play.watchPlaylistEndpoint?.playlistId ?? play.watchEndpoint?.playlistId;
     if (!/^[\w-]{2,150}$/.test(id ?? '') || !title || seen.has(id)) return;
     if (!/PLAYLIST|MIX|AUTOMIX/i.test(pageType) && !/^(PL|RD|LM|LL)/.test(id)) return;
@@ -24,7 +30,7 @@ export function parseMusicLibrary(data, section = 'mine') {
     if (section === 'mixes' && !mix || section === 'discover' && mix) return;
     seen.add(id);
     const thumbnails = value.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails ?? value.thumbnail?.thumbnails ?? [];
-    items.push({ id, title: title.slice(0, 200), subtitle: subtitle.slice(0, 200), thumbnail: photo(thumbnails.at(-1)?.url), community: /community|קהיל/i.test(context), kind: mix ? 'mix' : 'playlist', source: 'music', seed: endpoint.watchEndpoint?.videoId ?? play.watchEndpoint?.videoId ?? null });
+    items.push({ id, title: title.slice(0, 200), subtitle: subtitle.slice(0, 200), thumbnail: photo(thumbnails.at(-1)?.url), kind: mix ? 'mix' : 'playlist', source: 'music', seed: endpoint.watchEndpoint?.videoId ?? play.watchEndpoint?.videoId ?? null });
   }
   function walk(value, context = '', depth = 0) {
     if (!value || typeof value !== 'object' || depth > 35 || ++nodes > 40000 || visited.has(value)) return;
@@ -49,7 +55,12 @@ export function parseMusicLibrary(data, section = 'mine') {
 
 export function musicLibraryURL(section) {
   if (section === 'mine') return 'https://music.youtube.com/library/playlists';
-  if (section === 'mixes' || section === 'discover') return 'https://music.youtube.com/';
+  if (section === 'mixes') {
+    const url = new URL('https://music.youtube.com/browse/FEmusic_mixed_for_you');
+    url.searchParams.set('params', 'ggMEgAKCBA%3D%3D');
+    return url.href;
+  }
+  if (section === 'discover') return 'https://music.youtube.com/';
   throw new Error('Unknown library view.');
 }
 
