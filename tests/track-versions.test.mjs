@@ -108,3 +108,14 @@ test('confirmed missing alternates and positive matches survive reload without r
   assert.equal(state.playbackMode, 'video');
   assert.equal(state.playlist[0].versions.song.id, song);
 });
+
+test('version lookup exposes music metadata only from the matching content ID', async () => {
+  const typed = (text, pageType) => ({ text, navigationEndpoint: { browseEndpoint: { browseEndpointContextSupportedConfigs: { browseEndpointContextMusicConfig: { pageType } } } } });
+  const matching = row(song, 'MUSIC_VIDEO_TYPE_ATV');
+  matching.longBylineText = { runs: [typed('Artist', 'MUSIC_PAGE_TYPE_ARTIST'), typed('Album', 'MUSIC_PAGE_TYPE_ALBUM')] };
+  const unrelated = row('IHHq6lAgZzs', 'MUSIC_VIDEO_TYPE_ATV');
+  unrelated.longBylineText = { runs: [typed('Wrong artist', 'MUSIC_PAGE_TYPE_ARTIST')] };
+  const fetcher = async (_url, options) => options.method ? Response.json({ playlistPanelRenderer: { contents: [{ playlistPanelVideoRenderer: unrelated }, { playlistPanelVideoRenderer: matching }] } }) : new Response('ytcfg.set({"INNERTUBE_CLIENT_VERSION":"1.test"});');
+  const result = await queryTrackVersions({ id: song, fetcher });
+  assert.equal(result.artist, 'Artist'); assert.equal(result.album, 'Album');
+});

@@ -25,7 +25,7 @@
         <div class="window-body" id="main-body">
           <div class="lcd">
             <div class="time-cell"><div class="clock"><span id="play-indicator" aria-hidden="true">■</span><output id="time" aria-label="Elapsed time">00:00</output></div><div id="visualizer" class="spectrum" aria-label="Audio spectrum"></div></div>
-            <div class="track-readout"><div class="track-title" id="track-title">CARTOON — ON &amp; ON</div><div class="source-info"><span>YOUTUBE</span><span>EMBED</span></div><div class="source-info"><span id="playback-state" role="status">CONNECTING</span><span id="duration">--:--</span></div></div>
+            <div class="track-readout"><div class="track-title" id="track-title">CARTOON — ON &amp; ON</div><div class="track-metadata" id="track-artist" aria-label="Artist"></div><div class="track-metadata" id="track-album" aria-label="Album"></div><div class="source-info"><span id="playback-state" role="status">CONNECTING</span><span id="duration">--:--</span></div></div>
           </div>
           <label class="seek-label"><span class="sr-only">Playback position</span><input id="seek" class="seek" type="range" min="0" max="100" value="0" step="1" disabled aria-valuetext="00:00"></label>
           <div class="mix-controls"><label for="volume">VOLUME <output id="volume-value">75%</output><input id="volume" type="range" min="0" max="100" value="75"></label><label class="unavailable" for="balance" title="YouTube does not expose stereo balance">BALANCE <span>YOUTUBE: N/A</span><input id="balance" type="range" min="-100" max="100" value="0" disabled></label></div>

@@ -86,6 +86,7 @@ export function initialState(saved) {
     const playlist = legacyPrefix ? saved.playlist.slice(LEGACY_DEMO_TRACKS.length) : saved.playlist;
     state.playlist = playlist.filter(t => t && /^[\w-]{11}$/.test(t.id) && !seen.has(t.id) && seen.add(t.id)).slice(0, 500).map(t => {
       const track = { id: t.id, title: typeof t.title === 'string' ? t.title.slice(0, 300) : `YouTube — ${t.id}`, duration: clamp(t.duration, 0, 604800), start: clamp(t.start, 0, 86400) };
+      for (const field of ['artist', 'album']) if (typeof t[field] === 'string' && t[field].trim()) track[field] = t[field].trim().slice(0, 300);
       if (TRACK_ERROR_CODES.has(t.unavailable?.code)) track.unavailable = { code: t.unavailable.code, message: typeof t.unavailable.message === 'string' ? t.unavailable.message.slice(0, 300) : 'This video could not be played.', checkedAt: Number.isFinite(t.unavailable.checkedAt) ? clamp(t.unavailable.checkedAt, 0, Date.now()) : 0 };
       if (t.versionsChecked === true) track.versionsChecked = true;
       const versions = cleanVersions(t.versions);

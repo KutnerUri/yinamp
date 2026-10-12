@@ -23,3 +23,8 @@ input[type=range]{width:100%;height:14px;accent-color:var(--accent);margin:0;cur
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}.spectrum span{transition:none}}
 
 #version-video[aria-pressed="true"]{box-shadow:inset 1px 1px 2px #0008}#version-video[data-active="true"]{color:var(--accent)}
+
+.track-metadata{font:10px/1.4 var(--mono);min-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:color-mix(in srgb,var(--accent),var(--screen) 25%)}
+.metadata-pending{animation:metadata-pulse 1.8s ease-in-out infinite}
+@keyframes metadata-pulse{0%,100%{opacity:.38}50%{opacity:.62}}
+@media(prefers-reduced-motion:reduce){.metadata-pending{animation:none;opacity:.45}}

@@ -24,5 +24,5 @@ export async function queryTrackVersions({ id, fetcher = fetch, signal } = {}) {
     videoId: id, playlistId: `RDAMVM${id}`, enablePersistentPlaylistPanel: true, isAudioOnly: true,
     tunerSettingValue: 'AUTOMIX_SETTING_NORMAL' });
   const track = parsePlaylistTracks(data).tracks.find(track => track.id === id || Object.values(track.versions ?? {}).some(version => version.id === id));
-  return { versions: cleanVersions(track?.versions) };
+  return { versions: cleanVersions(track?.versions), ...Object.fromEntries(['artist', 'album'].filter(field => track?.[field]).map(field => [field, track[field]])) };
 }

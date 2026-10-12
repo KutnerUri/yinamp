@@ -155,9 +155,13 @@ See the latest production-adapter evidence in `LIBRARY-VALIDATION.md`.
 
 - [x] Inspect current metadata pipeline. Music song search results explicitly tag artist/album runs; examples include Michael Jackson / Bad (25th Anniversary) and Michael Jackson / Number Ones. Playlist rows expose tagged artists but may lack albums.
 - [x] Confirm current parsing/persistence drops these fields, desktop snapshots contain only playback state, and the video-title lookup's author/channel is ignored by the UI.
-- [ ] Preserve artist/album metadata from typed Music results and playlist rows, with channel fallback clearly distinct from a verified artist. Display title, artist, and album when available, replacing the prominent YouTube/Desktop labels while keeping essential playback status/duration.
-- [ ] Check any current-page/media-session enrichment against the selected content ID, skip advertisements, and hide unavailable fields rather than guessing an album from the playlist title.
-- [ ] Present implementation scope before this separate UI/persistence task, then review and commit after approval.
+- [x] Preserve explicitly tagged artist/album metadata from Music playlist rows and matching song/video lookup results through queue loading, saved state and JSON export/import. Display artist and album beneath the title, replacing the prominent YouTube/Desktop labels while retaining playback status/duration. User instructed missing values to remain empty; no channel fallback or album guesses.
+- [x] Enrich only from the Music lookup row matching the requested song or its provider-declared counterpart; reject stale responses after selection changes. No watch-page/media-session or advertisement metadata is used. Unavailable fields remain empty.
+- [x] Present implementation scope and obtain user approval for this separate UI/persistence task.
+- [x] Verify typed metadata, channel rejection, duplicate-row enrichment, bounded saved-state round trips and selected-ID lookup isolation; 84 regression tests pass. Controlled browser desktop-adapter check confirms display, clearing missing values on track changes, lookup enrichment, reload persistence and narrow layout; screenshots inspected.
+- [x] Add a subtle monospace `---` opacity pulse (38%–62%, 1.8 seconds) for missing artist/album while the lookup is pending; clear on success/failure, leave unavailable values empty, and respect reduced-motion preferences. Controlled browser check verifies pending and resolved states; screenshot inspected.
+- [x] User reviewed and approved the metadata display and pending indicator; requested the final 38%–62% opacity range.
+- [ ] User commit checkpoint. Existing saved queues without metadata retain empty fields until a playlist is reopened or an uncached lookup supplies typed metadata.
 
 The user reported that user info temporarily showed a generic icon with "Signed
 in / Player signed in", and that a full app restart restored it. Possible stale

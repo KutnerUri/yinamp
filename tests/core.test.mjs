@@ -120,3 +120,15 @@ test('new users start empty and legacy demo prefixes are removed once', () => {
   const deliberate=initialState({version:2,playlist:LEGACY_DEMO_TRACKS});assert.equal(deliberate.playlist.length,3);
   assert.equal(initialState({playlist:[extra,LEGACY_DEMO_TRACKS[0]]}).playlist.length,2);
 });
+
+test('saved queues preserve bounded music metadata without inventing missing fields', () => {
+  const state = initialState({ version: 2, playlist: [
+    { id: 'IHHq6lAgZzs', title: 'Song', artist: ' Artist ', album: 'Album' },
+    { id: 'c8fu7tkc2Iw', title: 'Unknown', artist: {}, album: '   ' },
+    { id: 'M7lc1UVf-VE', artist: 'a'.repeat(400), album: 'b'.repeat(400) },
+  ] });
+  assert.equal(state.playlist[0].artist, 'Artist'); assert.equal(state.playlist[0].album, 'Album');
+  assert.equal(state.playlist[1].artist, undefined); assert.equal(state.playlist[1].album, undefined);
+  assert.equal(state.playlist[2].artist.length, 300); assert.equal(state.playlist[2].album.length, 300);
+  assert.deepEqual(initialState(JSON.parse(JSON.stringify(state))).playlist, state.playlist);
+});

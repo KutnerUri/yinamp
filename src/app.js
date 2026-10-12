@@ -174,11 +174,22 @@ function renderSkin() {
   for (const input of document.querySelectorAll('[data-color]')) input.value = state.skin.colors[input.dataset.color];
   for (const button of document.querySelectorAll('[data-skin]')) button.setAttribute('aria-pressed', String(JSON.stringify(SKINS[button.dataset.skin].colors) === JSON.stringify(state.skin.colors)));
 }
+function renderTrackMetadata(track, pending = false) {
+  for (const field of ['artist', 'album']) {
+    const element = $(`#track-${field}`);
+    const loading = pending && !track?.[field];
+    element.textContent = loading ? '---' : track?.[field] ?? '';
+    element.classList.toggle('metadata-pending', loading);
+    element.setAttribute('aria-busy', String(loading));
+    element.title = track?.[field] ?? '';
+  }
+}
 function updateTrack() {
   const track = currentTrack();
   ui.trackTitle.value = track?.title ?? '';
   $('#track-title').textContent = track?.title.toUpperCase() ?? 'YOUR PLAYLIST STARTS HERE';
   $('#track-title').title = track?.title ?? '';
+  renderTrackMetadata(track);
   $('#youtube-link').hidden = !track;
   if (track) $('#youtube-link').href = `https://www.youtube.com/watch?v=${track.id}`;
   $('#video-placeholder').hidden = player.ready && Boolean(track);
@@ -250,6 +261,7 @@ async function resolveVersions(force = false) {
     return;
   }
   versionErrors.delete(track.id); versionChecking = true; renderVersions();
+  renderTrackMetadata(track, true);
   try {
     const result = window.yinampDesktop
       ? await window.yinampDesktop.library({ action: 'versions', id: track.id })
@@ -261,12 +273,15 @@ async function resolveVersions(force = false) {
       })();
     if (request !== versionRequest || currentTrack() !== track) return;
     track.versions = cleanVersions({ ...track.versions, ...result.versions });
+    for (const field of ['artist', 'album']) if (!track[field] && typeof result[field] === 'string' && result[field].trim()) track[field] = result[field].trim().slice(0, 300);
+    renderTrackMetadata(track);
     track.versionsChecked = true;
     state.playbackMode ??= versionMode(track, playingId) ?? 'song';
     versionChecking = false; persist(); renderVersions();
     switchRecording(state.playbackMode, false);
   } catch (error) {
     if (request !== versionRequest || currentTrack() !== track) return;
+    renderTrackMetadata(track);
     versionChecking = false; versionErrors.set(track.id, { kind: 'lookup', message: error.message }); renderVersions();
   }
 }
@@ -559,6 +574,7 @@ async function openOnlinePlaylist(value, autoplay = false, options = {}) {
   for (const track of result.added) {
     const data = metadata.get(track.id);
     if (typeof data?.title === 'string') track.title = data.title.slice(0, 300);
+    for (const field of ['artist', 'album']) if (typeof data?.[field] === 'string' && data[field].trim()) track[field] = data[field].trim().slice(0, 300);
     if (Number.isFinite(data?.duration)) track.duration = clamp(data.duration, 0, 604800);
     const versions = cleanVersions(data?.versions);
     if (Object.keys(versions).length) track.versions = versions;

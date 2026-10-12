@@ -123,3 +123,25 @@ test('Discovery excludes only verified creator IDs, not names, artists, or saved
   const injected=(0,eval)(`(${parseMusicLibrary.toString()})`);
   assert.deepEqual(injected({contents:[owned,saved]}),parseMusicLibrary({contents:[owned,saved]}));
 });
+
+test('Music track metadata keeps typed artist/album links and merges duplicate queue rows', () => {
+  const run = (text, pageType) => ({ text, navigationEndpoint: { browseEndpoint: { browseEndpointContextSupportedConfigs: { browseEndpointContextMusicConfig: { pageType } } } } });
+  const row = runs => ({ musicResponsiveListItemRenderer: { playlistItemData: { videoId: 'IHHq6lAgZzs' }, flexColumns: [
+    { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'Song' }] } } },
+    { musicResponsiveListItemFlexColumnRenderer: { text: { runs } } },
+  ] } });
+  const data = { musicPlaylistShelfRenderer: { contents: [row([]), row([
+    run('Artist One', 'MUSIC_PAGE_TYPE_ARTIST'), { text: ' • ' }, run('Artist Two', 'MUSIC_PAGE_TYPE_ARTIST'),
+    run('Album', 'MUSIC_PAGE_TYPE_ALBUM'), run('Uploader', 'MUSIC_PAGE_TYPE_USER_CHANNEL'),
+  ])] } };
+  const result = parsePlaylistTracks(data);
+  assert.equal(result.tracks.length, 1);
+  assert.equal(result.tracks[0].artist, 'Artist One, Artist Two');
+  assert.equal(result.tracks[0].album, 'Album');
+  assert.deepEqual((0, eval)(`(${parsePlaylistTracks.toString()})`)(data), result);
+  const missing = parsePlaylistTracks({ playlistPanelVideoRenderer: { videoId: 'c8fu7tkc2Iw', title: { simpleText: 'Video' }, longBylineText: { runs: [run('Channel', 'MUSIC_PAGE_TYPE_USER_CHANNEL')] } } }).tracks[0];
+  assert.equal(missing.artist, undefined);
+  assert.equal(missing.album, undefined);
+  const panel = parsePlaylistTracks({ playlistPanelVideoRenderer: { videoId: 'c8fu7tkc2Iw', longBylineText: { runs: [run('Artist', 'MUSIC_PAGE_TYPE_ARTIST'), run('Record', 'MUSIC_PAGE_TYPE_ALBUM')] } } }).tracks[0];
+  assert.equal(panel.artist, 'Artist'); assert.equal(panel.album, 'Record');
+});

@@ -19,7 +19,6 @@ export class NativePlayer {
       else if (event.type === 'fullscreen' && !event.enabled) document.body.classList.remove('native-video-fullscreen');
     });
     document.body.classList.add('native-desktop');
-    document.querySelector('.source-info span:last-child').textContent = 'DESKTOP';
     this.trackLayout();
   }
   send(command) { return this.bridge.player(command).catch(error => this.handlers.onError(error.message, { unchanged: command.type === 'switch' })); }

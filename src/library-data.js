@@ -98,6 +98,17 @@ export function parsePlaylistTracks(data) {
     const length = text(old?.lengthText ?? music?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text);
     const duration = /^\d+(?::\d{2}){1,2}$/.test(length) ? length.split(':').reduce((total, part) => total * 60 + Number(part), 0) : 0;
     const track = { id, title: title.slice(0, 300), duration, start: 0 };
+    // Only typed Music links establish artist/album identity; channel bylines
+    // and unlinked subtitle text are not reliable music metadata.
+    const runs = [old?.longBylineText, old?.shortBylineText, old?.subtitle,
+      ...(music?.flexColumns ?? []).slice(1).map(column => column.musicResponsiveListItemFlexColumnRenderer?.text)]
+      .flatMap(value => value?.runs ?? []);
+    for (const [field, pageType] of [['artist', 'MUSIC_PAGE_TYPE_ARTIST'], ['album', 'MUSIC_PAGE_TYPE_ALBUM']]) {
+      const names = runs.filter(run => run.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType === pageType)
+        .map(run => typeof run.text === 'string' ? run.text.trim() : '').filter(Boolean);
+      const value = [...new Set(names)].join(', ').slice(0, 300);
+      if (value) track[field] = value;
+    }
     const versions = {};
     const kind = renderer => {
       const type = renderer?.navigationEndpoint?.watchEndpoint?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType;
@@ -117,6 +128,7 @@ export function parsePlaylistTracks(data) {
     if (Object.keys(versions).length) track.versions = versions;
     const previous = seen.get(id);
     if (previous) {
+      for (const field of ['artist', 'album']) if (!previous[field] && track[field]) previous[field] = track[field];
       if (track.versions) previous.versions = { ...previous.versions, ...track.versions };
       if (!previous.duration && duration) previous.duration = duration;
     } else { seen.set(id, track); tracks.push(track); }

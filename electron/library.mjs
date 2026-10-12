@@ -147,7 +147,7 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
       url.searchParams.set('v', id);
       const listing = await page(url.href, `(${readRenderedPlaylist.toString()})(${parsePlaylistTracks.toString()})`, `watch:${id}`);
       const track = listing.tracks?.find(track => track.id === id || Object.values(track.versions ?? {}).some(item => item.id === id));
-      const result = { versions: cleanVersions(track?.versions) };
+      const result = { versions: cleanVersions(track?.versions), ...Object.fromEntries(['artist', 'album'].filter(field => track?.[field]).map(field => [field, track[field]])) };
       if (version !== generation) throw new Error('The account changed. Try again.');
       cache.set(key, result);
       return result;
