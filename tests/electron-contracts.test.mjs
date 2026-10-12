@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { watchURL, isYouTubeURL, isExternalURL, viewBounds, validateCommand } from '../electron/contracts.mjs';
+import { YOUTUBE_PARTITION, INTERFACE_PARTITION, accountURL, isAccountURL, watchURL, isYouTubeURL, isExternalURL, viewBounds, validateCommand } from '../electron/contracts.mjs';
 import { controlPage, readPage } from '../electron/page-scripts.mjs';
 
 test('desktop transport constructs only normal YouTube watch URLs', () => {
@@ -20,6 +20,15 @@ test('native view bounds stay inside the window and IPC commands validate their 
   assert.throws(() => validateCommand({ type: 'volume', value: 200 }));
   assert.throws(() => validateCommand({ type: 'seek', value: -5 }));
   assert.throws(() => validateCommand({ type: 'load', id: 'file:///etc/passwd' }));
+});
+test('account navigation stays within HTTPS Google and YouTube pages, in a separate persistent session', () => {
+  assert.notEqual(YOUTUBE_PARTITION, INTERFACE_PARTITION);
+  assert.ok(YOUTUBE_PARTITION.startsWith('persist:'));
+  assert.equal(accountURL('open'), 'https://www.youtube.com/account');
+  assert.equal(new URL(accountURL('switch')).hostname, 'accounts.google.com');
+  assert.throws(() => accountURL('https://evil.test'));
+  for (const url of ['https://accounts.google.com/v3/signin', 'https://www.youtube.com/account', 'https://myaccount.google.com/']) assert.equal(isAccountURL(url), true);
+  for (const url of ['https://accounts.google.com.evil.test/', 'https://accounts.google.com@evil.test/', 'http://accounts.google.com/', 'file:///etc/passwd', 'javascript:alert(1)']) assert.equal(isAccountURL(url), false);
 });
 test('page bridge changes play/pause, seeking, stop, and volume through the HTML media element', async t => {
   const previous = globalThis.document;

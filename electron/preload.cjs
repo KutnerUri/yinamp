@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('yinampDesktop', {
   readState: () => ipcRenderer.invoke('yinamp:read-state'),
   saveState: state => ipcRenderer.invoke('yinamp:save-state', state),
   player: command => ipcRenderer.invoke('yinamp:player', command),
+  account: action => ipcRenderer.invoke('yinamp:account', action),
   layout: bounds => ipcRenderer.send('yinamp:layout', bounds),
   onPlayer: callback => {
     const listener = (_event, value) => callback(value);

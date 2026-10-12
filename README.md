@@ -27,6 +27,22 @@ The browser and desktop versions have separate saved settings. Use **SAVE** in t
 
 The native view follows the video panel when dragged and hides while dialogs are open or another window covers it; audio can continue. The fullscreen button expands the video panel; Escape returns to the normal view. The watch-page integration keeps native YouTube player controls and advertisement playback. It is a prototype, not a signed installer, and page layout changes can require updates. YouTube sign-in, consent, regional restrictions, and content availability still apply.
 
+### YouTube account
+
+Open **Account** in the desktop app, then choose **SIGN IN / MANAGE ACCOUNT**. A separate account window opens YouTube’s account page and its Google sign-in flow. You enter credentials directly in that window. It shares the video player’s persistent `persist:yinamp-youtube` session, separate from the interface and from your normal browser. The account window has no preload, app IPC bridge or injected playback scripts. Google authentication pages are never inspected; the app reads only the login flag, avatar, displayed account name (when available), and Premium branding on normal YouTube pages.
+
+Close the account window when finished, then press Play. The current video reloads paused at its latest position to pick up the session changes. **SWITCH ACCOUNT** opens Google’s account chooser. **SIGN OUT OF YINAMP** closes the account window and clears only the desktop YouTube session; saved playlists, skins and normal browser accounts are preserved.
+
+The header shows your avatar and the current login state. **Update player** means the account window has a different login state from the player's loaded page; choose **UPDATE PLAYER SESSION** to reload the current track paused. **Player connected** confirms that the player's YouTube page reports the same signed-in account. The Premium badge appears only when the player's page displays Premium branding; absent branding is not treated as proof that an account lacks Premium. **CHECK LOGIN STATUS** refreshes these observations. Identity is kept in memory, not stored in saved playlists or diagnostic logs.
+
+Google may reject sign-in in embedded browsers. Opening the form does not establish a Premium session, and completing sign-in/Premium playback requires your own account. No credentials are imported from a browser profile, and no external OAuth token is treated as a YouTube website login.
+
+Electron 45.0.0-beta.1 was evaluated on October 12, 2026 in separate test profiles. Playback controls, account windows, switching, session persistence and sign-out passed. The default remains Electron 44.7.0, the latest stable release at the time of evaluation. The beta's native macOS passkeys require a signed and provisioned app plus a domain association authorizing that app on the login domain; upgrading the runtime alone does not enable Google passkeys in this prototype. Use Google's **Try another way** option for password and other verification methods.
+
+### Desktop diagnostics
+
+If the video process stops unexpectedly, Yinamp keeps the queue and offers **Retry** to reload the track. Desktop diagnostics are stored locally as `yinamp-diagnostics.jsonl` in Electron's user-data directory (or the directory specified with `--profile`). **Account → OPEN LOGIN LOG** reveals the file. The log records startup/shutdown, process IDs, Electron versions, renderer/child-process failures, account-window responsiveness, and login navigation. Navigation entries contain only hostnames, route categories (such as password or session transfer), HTTP status or network error codes, and blocked-redirect events. It excludes page content, full URLs, query parameters, account names, credentials, form data and cookies; the previous log is retained when the current log exceeds 256 KiB. Native main-process crashes can also produce macOS reports in `~/Library/Logs/DiagnosticReports`.
+
 ## Use
 
 - Press **+ ADD** (or eject) and paste a YouTube link or video ID. Watch, Shorts, live, music, embed, and `youtu.be` links work. Link timestamps are preserved.

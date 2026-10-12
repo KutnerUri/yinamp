@@ -1,4 +1,14 @@
 const videoPattern = /^[\w-]{11}$/;
+export const YOUTUBE_PARTITION = 'persist:yinamp-youtube';
+export const INTERFACE_PARTITION = 'persist:yinamp-interface';
+export function isAccountURL(value) {
+  try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && (isYouTubeURL(value) || ['accounts.google.com', 'myaccount.google.com', 'consent.google.com'].includes(url.hostname) || url.hostname === 'www.google.com' && url.pathname.startsWith('/accounts/')); } catch { return false; }
+}
+export function accountURL(action) {
+  if (action === 'open') return 'https://www.youtube.com/account';
+  if (action === 'switch') return 'https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fwww.youtube.com%2F';
+  throw new Error('Unsupported account action');
+}
 export function watchURL(id, start = 0) {
   if (!videoPattern.test(id ?? '')) throw new Error('Invalid YouTube video ID');
   const url = new URL('https://www.youtube.com/watch');

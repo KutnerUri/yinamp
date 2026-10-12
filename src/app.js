@@ -3,6 +3,7 @@ import { YouTubePlayer } from './youtube.js';
 import { NativePlayer } from './native-player.js';
 import { setupPanels } from './panels.js';
 import { readPlaylistWithFallback } from './playlist-import.js';
+import { renderAccount } from './account-ui.js';
 
 const $ = selector => document.querySelector(selector);
 let stored;
@@ -315,6 +316,40 @@ for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListene
 $('#open-add').onclick = openAdd; $('#playlist-add').onclick = openAdd;
 $('#open-skins').onclick = () => showDialog('skins-dialog'); $('#footer-skins').onclick = () => showDialog('skins-dialog');
 $('#open-help').onclick = () => showDialog('help-dialog');
+$('#open-account').hidden = !window.yinampDesktop;
+let desktopAccount = { status: 'checking', playerStatus: 'checking' };
+let accountIssue = '';
+function updateAccount(data) {
+  desktopAccount = data; renderAccount(data);
+  if (data.issue && data.issue !== accountIssue) notify(data.issue, true);
+  accountIssue = data.issue || '';
+}
+async function checkAccount() { try { updateAccount(await window.yinampDesktop.account('status')); } catch { renderAccount({ ...desktopAccount, issue: 'Login status could not be checked. Try again.' }); } }
+if (window.yinampDesktop) {
+  renderAccount(desktopAccount);
+  const unsubscribeAccount = window.yinampDesktop.onPlayer(event => { if (event.type === 'account-state') updateAccount(event.data); });
+  window.addEventListener('pagehide', unsubscribeAccount, { once: true });
+  void checkAccount();
+}
+$('#open-account').onclick = () => { renderAccount(desktopAccount); showDialog('account-dialog'); void checkAccount(); };
+async function accountAction(action) {
+  if (!window.yinampDesktop) return;
+  const buttons = [...document.querySelectorAll('.account-actions button')];
+  buttons.forEach(button => { button.disabled = true; });
+  $('#account-error').hidden = true;
+  try {
+    const result = await window.yinampDesktop.account(action);
+    if (action !== 'diagnostics') $('#account-dialog').close();
+    if (action !== 'diagnostics') notify(action === 'refresh' ? result.refreshed ? 'Updating the player session. Press Play when ready.' : 'Add a track to check the player session.' : action === 'sign-out' ? 'Signed out of Yinamp. Your playlists and browser accounts are unchanged.' : result.opened === false ? 'Account window closed. Press Play to resume.' : 'Complete sign-in in the YouTube account window. Close it when done, then press Play.');
+  } catch (error) { $('#account-error').textContent = error.message; $('#account-error').hidden = false; }
+  finally { buttons.forEach(button => { button.disabled = false; }); }
+}
+$('#account-sign-in').onclick = () => accountAction('open');
+$('#account-switch').onclick = () => accountAction('switch');
+$('#account-sign-out').onclick = () => accountAction('sign-out');
+$('#account-refresh').onclick = () => accountAction('refresh');
+$('#account-check').onclick = () => void checkAccount();
+$('#account-diagnostics').onclick = () => accountAction('diagnostics');
 $('#reset-layout').onclick = () => { panels.reset(); notify('Windows arranged.'); };
 $('#compact-main').onclick = () => { const body = $('#main-body'); body.hidden = !body.hidden; $('#compact-main').setAttribute('aria-expanded', String(!body.hidden)); panels.refresh(); };
 $('#fullscreen').onclick = async () => { if (window.yinampDesktop) { player.fullscreen(); return; } try { if (document.fullscreenElement) await document.exitFullscreen(); else await $('#video-viewport').requestFullscreen(); } catch { notify('Use the fullscreen button inside the YouTube video on this browser.'); } };
