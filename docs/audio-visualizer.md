@@ -1,6 +1,6 @@
 # Desktop audio visualizer
 
-The desktop player replaces simulated bars with 20 logarithmic frequency bands from the YouTube watch-page video. Ads are included. Browser iframe playback shows idle bars because the embedded player does not expose audio samples.
+The desktop player replaces simulated bars with 20 logarithmic frequency bands from the YouTube watch-page video. Ads are included. Browser iframe playback shows a simulated decorative spectrum because the embedded player does not expose audio samples. It animates only during PLAYING, settles to zero for other playback states, stops while the page is hidden, and uses a static pattern for reduced motion. It uses a slower 100 ms rendering interval, with the same discrete LEDs as the desktop renderer.
 
 ## Audio and timing
 
@@ -17,3 +17,7 @@ A short alternating comparison on a Mac with 10 logical CPUs measured ~2.91% mac
 Electron normalizes its CPU percentage by logical processor count: https://github.com/electron/electron/blob/v44.7.0/shell/browser/api/electron_api_app.cc#L1345-L1363 . The earlier experiment’s ~4.7% reading was machine-wide, not a percentage of one core.
 
 Prototype code, machine-specific QA scripts, screenshots, profiles, and raw measurements remain local under the ignored `work/qa/` directory. The prototype archive is `work/qa/audio-visualizer-archive/`.
+
+## Browser fallback — 2026-10-13
+
+The browser fallback uses a shared slow pulse and smooth waves across adjacent bars, with faster attack, slower decay and small smoothed random variations. Rise and fall smoothing use 1/φ and 1/φ³ (approximately 0.618 and 0.236). It replaces the earlier independent random heights. The accessible label and tooltip identify it as simulated. All 88 project tests pass; browser checks with controlled YouTube events verified sustained animation, pause/stop settling and a static reduced-motion pattern. The renderer lifecycle test also verifies hidden-page suspension and resumption. Electron continues to consume real spectrum samples.

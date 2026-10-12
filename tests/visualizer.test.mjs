@@ -24,3 +24,27 @@ test('spectrum rendering caps paint at 20 Hz and stops when hidden or settled', 
  assert.ok(clips.every(value=>value==='inset(23px 0 0)'), 'Inactive bars have zero lit blocks');
  visualizer.destroy();assert.equal(Object.keys(listeners).length,0);
 });
+
+test('browser simulation runs beyond sample timeout, settles on pause, and respects visibility/reduced motion', t => {
+ const keys=['document','matchMedia','requestAnimationFrame','cancelAnimationFrame'];
+ const originals=Object.fromEntries(keys.map(key=>[key,globalThis[key]]));
+ t.after(()=>{for(const [key,value] of Object.entries(originals)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}});
+ const listeners={},clips=[],pending=new Map();let id=0;
+ const motion={matches:false,addEventListener:(_,fn)=>{motion.change=fn;},removeEventListener:()=>{delete motion.change;}};
+ globalThis.document={hidden:false,createElement:()=>{const index=clips.length;clips.push('');return {style:{set clipPath(value){clips[index]=value;}}};},addEventListener:(key,fn)=>{listeners[key]=fn;},removeEventListener:key=>{delete listeners[key];}};
+ globalThis.matchMedia=()=>motion;
+ globalThis.requestAnimationFrame=fn=>{pending.set(++id,fn);return id;};
+ globalThis.cancelAnimationFrame=id=>pending.delete(id);
+ let now=performance.now();const tick=()=>{now+=50;const callbacks=[...pending.values()];pending.clear();callbacks.forEach(fn=>fn(now));};
+ const visualizer=setupVisualizer({append(){}},{simulated:true});
+ visualizer.setPlaying(true);for(let n=0;n<50;n++)tick();
+ assert.equal(pending.size,1);assert.ok(clips.some(value=>value!=='inset(23px 0 0)'));
+ document.hidden=true;listeners.visibilitychange();assert.equal(pending.size,0);
+ document.hidden=false;listeners.visibilitychange();tick();assert.equal(pending.size,1);
+ motion.matches=true;motion.change();tick();assert.equal(pending.size,0,'Reduced motion has no continuous animation');
+ const staticBars=[...clips];tick();assert.deepEqual(clips,staticBars);
+ motion.matches=false;motion.change();tick();assert.equal(pending.size,1);
+ visualizer.setPlaying(false);for(let n=0;n<40;n++)tick();
+ assert.equal(pending.size,0);assert.ok(clips.every(value=>value==='inset(23px 0 0)'));
+ visualizer.destroy();assert.deepEqual(Object.keys(listeners),[]);assert.equal(motion.change,undefined);
+});

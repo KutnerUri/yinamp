@@ -17,3 +17,7 @@ A short alternating local-tone CPU comparison measured the audio renderer at rou
 ## Manual preamp update — 2026-10-13
 
 Removed automatic compensation after user review: boosting a band now leaves preamp unchanged. All 87 tests pass. The isolated PCM check measured a +12 dB band boost at about 3.98× baseline amplitude with unity preamp, and rechecked cuts, manual preamp, bypass, mute, volume and saved controls.
+
+## UI update — 2026-10-13
+
+Sliders are 106 px tall and the graph is 54 px tall, with ON/RESET alongside it. The preamp displays signed gains with one decimal place and has +12/0/−12 dB reference labels to its right. The main EQ button lights when enabled, independently of panel visibility. Desktop and 375/320 px layouts were inspected. The spectrum’s highest LED is red when lit; this is a frequency-band strength cue, not a clipping detector.

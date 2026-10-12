@@ -8,7 +8,7 @@ import { setupPanels } from './panels.js';
 import { readPlaylistWithFallback } from './playlist-import.js';
 import { renderAccount } from './account-ui.js';
 import { setupMusicLibrary } from './library-ui.js';
-import { batch } from '@preact/signals-core';
+import { batch, effect } from '@preact/signals-core';
 import { createPlayerUI, savedPlayerState, bindPlayerUI } from './player-ui.js';
 import { createDebouncedSave } from './persistence.js';
 
@@ -57,8 +57,12 @@ function saveState() {
   catch { if (storageAvailable) notify('Browser storage is full or unavailable. Export your playlist to keep a copy.', true); storageAvailable = false; }
 }
 
-const visualizer = setupVisualizer($('#visualizer'));
-$('#visualizer').setAttribute('aria-label', window.yinampDesktop ? 'Live music spectrum' : 'Audio spectrum unavailable for embedded YouTube playback');
+const visualizer = setupVisualizer($('#visualizer'), { simulated: !window.yinampDesktop });
+$('#visualizer').setAttribute('aria-label', window.yinampDesktop ? 'Live music spectrum' : 'Simulated audio spectrum — decorative animation');
+if (!window.yinampDesktop) {
+  $('#visualizer').title = 'Simulated spectrum — decorative animation';
+  effect(() => visualizer.setPlaying(ui.playback.value === 'PLAYING'));
+}
 const Player = window.yinampDesktop ? NativePlayer : YouTubePlayer;
 let equalizerControls;
 const player = new Player({
