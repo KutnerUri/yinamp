@@ -27,6 +27,10 @@ export function createAppServer({ fetcher = fetch } = {}) {
     }
     try {
       const url = new URL(request.url, 'http://localhost');
+      // Expose only this dependency's ESM entry, keeping the app build-free.
+      if (url.pathname === '/src/vendor/signals-core.js') {
+        return send(200, await readFile(fileURLToPath(import.meta.resolve('@preact/signals-core'))), mime['.js']);
+      }
       if (url.pathname === '/api/library') {
         if (url.searchParams.get('section') !== 'discover') return send(400, JSON.stringify({ error: 'Personal library views use the desktop app.' }));
         try {

@@ -4,9 +4,10 @@ A compact, Winamp-inspired YouTube player: beveled controls, an LED display, dra
 
 ## Run
 
-Requires Node.js 22.12 or newer. The browser version does not require installed dependencies.
+Requires Node.js 22.12 or newer. Install dependencies once with `pnpm install`.
 
 ```sh
+pnpm install
 npm run dev
 ```
 
@@ -102,9 +103,13 @@ npm test
 - `src/playlist-import.js`: cancellable online playlist preview and track discovery.
 - `playlist-listing.mjs`: public listing fallback for playlists whose preview is blocked.
 - `src/panels.js`: window dragging, snapping, and saved positions.
-- `src/app.js`: UI bindings, playback state, playlist editing, import/export.
+- `src/app.js`: player commands, playlist editing, import/export, and explicit save requests.
+- `src/player-ui.js`: scalar signals and small effects for controls, visibility, playback, and playlist selection. Use `savedPlayerState()` for persistence and queue navigation; keep queue edits explicit.
+- `src/persistence.js`: debounced settings saves, flushed when the page is hidden or left.
 - `server.mjs`: local static server and fixed-destination title lookup.
 - `electron/`: desktop shell, isolated UI bridge, public watch-page playback, and persisted settings.
 - `src/native-player.js`: desktop implementation of the player interface.
+
+The UI uses `@preact/signals-core` without a build step. An import map loads its installed ESM entry through one fixed server route. Changes to scalar signals update their dependent controls automatically; group related writes with `batch()`. Queue edits and metadata changes rebuild rows, while selection updates existing rows.
 
 Tests cover input validation, playlist merging and preview lifecycle, persistence recovery, repeat/shuffle behavior, static serving, and metadata failure handling. Browser checks verify the interface with a mocked player API as well as a real YouTube embed; real playback depends on video availability and the network.

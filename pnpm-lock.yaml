@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@preact/signals-core':
+        specifier: 1.14.4
+        version: 1.14.4
     devDependencies:
       electron:
         specifier: 44.7.0
@@ -21,6 +25,9 @@ packages:
   '@electron/get@5.1.0':
     resolution: {integrity: sha512-3kSBtG8ObcTVfXanm5vVJ6UnBLEVmVsRk1M+vGqCuMBV+XLCbJYuWQful+yIy0GQDsSlK0kHEriEHn7SPk4EnA==}
     engines: {node: '>=22.12.0'}
+
+  '@preact/signals-core@1.14.4':
+    resolution: {integrity: sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA==}
 
   '@types/node@24.19.2':
     resolution: {integrity: sha512-93d49wCWJkCyN87MxLpNN6KXPCwFw7bVUg79mGUV1OS40JGWwVCr8n61DXCSqz7CV6/VfPkb7xec7uP2M+QHWQ==}
@@ -85,6 +92,8 @@ snapshots:
       undici: 7.30.0
     transitivePeerDependencies:
       - supports-color
+
+  '@preact/signals-core@1.14.4': {}
 
   '@types/node@24.19.2':
     dependencies:

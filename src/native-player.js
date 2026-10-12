@@ -46,9 +46,12 @@ export class NativePlayer {
   }
   trackLayout() {
     let previousBounds = '';
+    let frame = 0;
+    const viewport = document.getElementById('video-viewport');
+    const layoutElements = new Set([document.body, document.getElementById('desktop'), viewport, ...document.querySelectorAll('[data-panel]')]);
     const update = () => {
-      const panel = document.getElementById('video-viewport');
-      const rect = panel.getBoundingClientRect();
+      frame = 0;
+      const rect = viewport.getBoundingClientRect();
       const covered = document.querySelector('dialog[open]') || document.querySelector('.player-window.dragging') || (!document.body.classList.contains('native-video-fullscreen') && [...document.querySelectorAll('[data-panel]')].some(window => {
         if (window.dataset.panel === 'video' || window.hidden) return false;
         const bounds = window.getBoundingClientRect();
@@ -58,13 +61,33 @@ export class NativePlayer {
       const key = JSON.stringify(bounds);
       if (key !== previousBounds) { previousBounds = key; this.bridge.layout(bounds); }
     };
-    this.layoutTimer = setInterval(update, 80);
-    this.layoutObserver = new MutationObserver(update);
-    this.layoutObserver.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'hidden', 'class'] });
-    document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && document.body.classList.contains('native-video-fullscreen')) this.fullscreen();
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    const mutations = new MutationObserver(records => {
+      // Panel positions use inline styles. Ignore unrelated style changes,
+      // particularly the visualizer's continuous bar animation.
+      if (records.some(record => record.type !== 'attributes' || record.attributeName !== 'style' || layoutElements.has(record.target))) schedule();
     });
-    update();
+    mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'hidden', 'class', 'style'] });
+    const sizes = new ResizeObserver(schedule);
+    for (const element of layoutElements) if (element) sizes.observe(element);
+    // Capture also covers scrolling inside nested containers.
+    document.addEventListener('scroll', schedule, { capture: true, passive: true });
+    window.addEventListener('resize', schedule);
+    document.addEventListener('visibilitychange', schedule);
+    const keydown = event => {
+      if (event.key === 'Escape' && document.body.classList.contains('native-video-fullscreen')) this.fullscreen();
+    };
+    document.addEventListener('keydown', keydown);
+    this.stopTrackingLayout = () => {
+      cancelAnimationFrame(frame);
+      mutations.disconnect();
+      sizes.disconnect();
+      document.removeEventListener('scroll', schedule, true);
+      window.removeEventListener('resize', schedule);
+      document.removeEventListener('visibilitychange', schedule);
+      document.removeEventListener('keydown', keydown);
+    };
+    schedule();
   }
-  destroy() { clearInterval(this.layoutTimer); this.layoutObserver?.disconnect(); this.unsubscribe?.(); }
+  destroy() { this.stopTrackingLayout?.(); this.unsubscribe?.(); }
 }

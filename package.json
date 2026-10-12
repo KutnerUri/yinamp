@@ -17,5 +17,8 @@
   },
   "devDependencies": {
     "electron": "44.7.0"
+  },
+  "dependencies": {
+    "@preact/signals-core": "1.14.4"
   }
 }

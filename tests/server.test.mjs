@@ -19,13 +19,17 @@ test('serves the application with module MIME types and a YouTube-compatible ref
     const module = await fetch(`${base}/src/app.js`);
     assert.match(module.headers.get('content-type'), /javascript/);
     assert.equal(module.status, 200);
+    const signals = await fetch(`${base}/src/vendor/signals-core.js`);
+    assert.equal(signals.status, 200);
+    assert.match(signals.headers.get('content-type'), /javascript/);
+    assert.match(await signals.text(), /export\s*\{/);
     const head = await fetch(`${base}/`, { method: 'HEAD' });
     assert.equal(head.status, 200); assert.equal(await head.text(), '');
   });
 });
 test('does not expose repository, server source, or paths outside the static directories', async () => {
   await withServer(null, async base => {
-    for (const path of ['/.git/config', '/server.mjs', '/package.json', '/work/yinamp-preview.html', '/src/%2e%2e%2fserver.mjs', '/src/.secret.js']) assert.equal((await fetch(base + path)).status, 404, path);
+    for (const path of ['/.git/config', '/server.mjs', '/package.json', '/node_modules/@preact/signals-core/package.json', '/src/vendor/other.js', '/work/yinamp-preview.html', '/src/%2e%2e%2fserver.mjs', '/src/.secret.js']) assert.equal((await fetch(base + path)).status, 404, path);
     assert.equal((await fetch(base, { method: 'POST' })).status, 405);
   });
 });
