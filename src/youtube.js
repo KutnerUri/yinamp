@@ -83,7 +83,7 @@ export class YouTubePlayer {
             this.handlers.onState(event.data);
             if (event.data === 5 && this.playWhenCued) { this.playWhenCued = false; this.player.playVideo(); }
           },
-          onError: event => { if (generation === this.generation) { this.playWhenCued = false; this.handlers.onError(youtubeErrors[event.data] ?? 'YouTube could not play this video. Try another link.'); } },
+          onError: event => { if (generation === this.generation) { this.playWhenCued = false; this.handlers.onError(youtubeErrors[event.data] ?? 'YouTube could not play this video. Try another link.', { code: event.data }); } },
           onAutoplayBlocked: () => this.handlers.onAutoplayBlocked(),
         },
       });

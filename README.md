@@ -17,8 +17,11 @@ Serve the app over HTTP; opening `index.html` directly does not work with ES mod
 ## Use
 
 - Press **+ ADD** (or eject) and paste a YouTube link or video ID. Watch, Shorts, live, music, embed, and `youtu.be` links work. Link timestamps are preserved.
+- Paste a YouTube playlist link into **+ ADD** to append its available videos in order. A video link with `list=...` offers **Add the entire playlist**; uncheck it to add just that video. Existing tracks are kept and duplicates are skipped. Titles fill in in the background, and importing a playlist does not interrupt the current track.
 - Select a track; press play. Double-click a track to play immediately. Previous/next, pause, stop, seek, volume, mute, shuffle, and repeat are connected to the YouTube player.
 - Repeat cycles through off, playlist, and one track. Without repeat, playback stops at the end of the playlist.
+- Videos that fail playback are marked **UNAVAILABLE**, with a per-row Retry button and an Open on YouTube link. During playback the queue skips them, including in shuffle/repeat modes. If no playable tracks remain, playback stops instead of looping through errors. Connection/identity errors do not mark the whole playlist unavailable.
+- Marks are saved with the playlist. Failed tracks become eligible for another attempt after 15 minutes when normal playlist playback reaches them; there is no background autoplay. Click a row’s **↻** to retry immediately. The playlist’s **RETRY** button makes all marked tracks eligible again, leaving a current song uninterrupted. A successful playback clears the mark. Retrying cannot override a video owner’s embedding restriction.
 - Use the arrows next to a playlist row to reorder it; × removes it. **SAVE/LOAD** export/import playlist JSON.
 - Drag window title bars on desktop. Nearby edges snap together. **Arrange windows** resets positions. On smaller screens the windows stack.
 - **EQ/PL** show or hide the equalizer and playlist. Your playlist, settings, layout, and skin are stored in this browser’s local storage.
@@ -54,6 +57,8 @@ This first version runs as a browser app with an embedded YouTube player, not as
 
 YouTube does not expose its decoded audio to the app. EQ and balance are visibly disabled rather than pretending to process audio. The LED spectrum is a decorative animation; it is not an audio analyzer. YouTube’s native controls remain available. No YouTube API key is needed; the local server uses YouTube oEmbed for optional title lookup, and lookup failures do not block playback.
 
+Online playlist import uses a temporary visible YouTube preview and the player API’s `getPlaylist()` method. When the preview fails (for example, the first video disallows embedding), the local server falls back to reading the playlist’s public YouTube page. Public and accessible unlisted playlists can be imported without an API key. Private, empty, personalized, or otherwise unavailable lists produce an error; Cancel stops the import without changing the queue. The queue holds up to 500 unique videos. Imports capture the videos YouTube exposes at that moment, rather than synchronizing later changes to the source playlist. The public-page fallback depends on YouTube’s page structure; if only a first page is exposed, the import message reports that limitation. Playback restrictions still apply to individual tracks.
+
 ## Development
 
 ```sh
@@ -62,8 +67,10 @@ npm test
 
 - `src/core.js`: URL parsing, playlist progression, persisted state, skin validation.
 - `src/youtube.js`: official player API adapter and connection/error states.
+- `src/playlist-import.js`: cancellable online playlist preview and track discovery.
+- `playlist-listing.mjs`: public listing fallback for playlists whose preview is blocked.
 - `src/panels.js`: window dragging, snapping, and saved positions.
 - `src/app.js`: UI bindings, playback state, playlist editing, import/export.
 - `server.mjs`: local static server and fixed-destination title lookup.
 
-Tests cover input validation, persistence recovery, repeat/shuffle behavior, static serving, and metadata failure handling. Browser checks should verify the interface with a mocked player API as well as a real YouTube embed; real playback depends on video availability and the network.
+Tests cover input validation, playlist merging and preview lifecycle, persistence recovery, repeat/shuffle behavior, static serving, and metadata failure handling. Browser checks verify the interface with a mocked player API as well as a real YouTube embed; real playback depends on video availability and the network.

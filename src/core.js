@@ -1,4 +1,7 @@
 export const STORAGE_KEY = 'yinamp.v1';
+export const RETRY_AFTER_MS = 15 * 60 * 1000;
+export const TRACK_ERROR_CODES = new Set([2, 5, 100, 101, 150]);
+export const canAttemptTrack = (track, now = Date.now()) => !track.unavailable || now - track.unavailable.checkedAt >= RETRY_AFTER_MS;
 export const DEFAULT_TRACKS = [
   { id: 'K4DyBUG242c', title: 'Cartoon — On & On', duration: 0 },
   { id: 'J2X5mJ3HDYE', title: 'DEAF KEV — Invincible', duration: 0 },
@@ -30,6 +33,36 @@ export function parseVideoInput(input) {
   return { id, start: clamp(start, 0, 86400) };
 }
 
+export function parseYouTubeInput(input) {
+  const value = String(input).trim();
+  if (/^[\w-]{11}$/.test(value)) return { type: 'video', ...parseVideoInput(value) };
+  let url;
+  try { url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`); }
+  catch { throw new Error('Paste a YouTube video or playlist link.'); }
+  if (!['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be', 'www.youtu.be', 'youtube-nocookie.com', 'www.youtube-nocookie.com'].includes(url.hostname.toLowerCase()) || !['https:', 'http:'].includes(url.protocol)) throw new Error('Use a link from youtube.com or youtu.be.');
+  if (!url.searchParams.has('list')) return { type: 'video', ...parseVideoInput(value) };
+  const playlistId = url.searchParams.get('list');
+  if (!/^[\w-]{2,150}$/.test(playlistId)) throw new Error('That playlist link needs a valid playlist ID. Copy its link from YouTube.');
+  let video = null;
+  try { video = parseVideoInput(value); } catch { /* Playlist-only links do not need a video. */ }
+  return { type: 'playlist', playlistId, video };
+}
+
+export function appendPlaylistTracks(existing, videoIds, limit = 500) {
+  const seen = new Set(existing.map(track => track.id));
+  const added = [];
+  let duplicates = 0;
+  let overflow = 0;
+  for (const id of new Set(videoIds)) {
+    if (!/^[\w-]{11}$/.test(id)) continue;
+    if (seen.has(id)) { duplicates++; continue; }
+    seen.add(id);
+    if (existing.length + added.length >= limit) { overflow++; continue; }
+    added.push({ id, title: `YouTube — ${id}`, duration: 0, start: 0 });
+  }
+  return { added, duplicates, overflow };
+}
+
 export function validateSkin(value) {
   if (!value || value.version !== 1 || typeof value.name !== 'string' || !value.name.trim() || !value.colors) throw new Error('Use a Yinamp skin with version 1, a name, and colors.');
   const colors = {};
@@ -45,7 +78,11 @@ export function initialState(saved) {
   if (!saved || typeof saved !== 'object') return state;
   if (Array.isArray(saved.playlist)) {
     const seen = new Set();
-    state.playlist = saved.playlist.filter(t => t && /^[\w-]{11}$/.test(t.id) && !seen.has(t.id) && seen.add(t.id)).slice(0, 500).map(t => ({ id: t.id, title: typeof t.title === 'string' ? t.title.slice(0, 300) : `YouTube — ${t.id}`, duration: clamp(t.duration, 0, 604800), start: clamp(t.start, 0, 86400) }));
+    state.playlist = saved.playlist.filter(t => t && /^[\w-]{11}$/.test(t.id) && !seen.has(t.id) && seen.add(t.id)).slice(0, 500).map(t => {
+      const track = { id: t.id, title: typeof t.title === 'string' ? t.title.slice(0, 300) : `YouTube — ${t.id}`, duration: clamp(t.duration, 0, 604800), start: clamp(t.start, 0, 86400) };
+      if (TRACK_ERROR_CODES.has(t.unavailable?.code)) track.unavailable = { code: t.unavailable.code, message: typeof t.unavailable.message === 'string' ? t.unavailable.message.slice(0, 300) : 'This video could not be played.', checkedAt: Number.isFinite(t.unavailable.checkedAt) ? clamp(t.unavailable.checkedAt, 0, Date.now()) : 0 };
+      return track;
+    });
     state.selectedId = state.playlist.some(t => t.id === saved.selectedId) ? saved.selectedId : state.playlist[0]?.id ?? null;
   }
   if (typeof saved.volume === 'number') state.volume = clamp(saved.volume, 0, 100);
@@ -61,19 +98,25 @@ export function initialState(saved) {
   return state;
 }
 
-export function nextTrackIndex(state, { direction = 1, automatic = false, random = Math.random } = {}) {
+export function nextTrackIndex(state, { direction = 1, automatic = false, skipCurrent = false, random = Math.random, now = Date.now() } = {}) {
   const count = state.playlist.length;
   if (!count) return -1;
   const current = state.playlist.findIndex(t => t.id === state.selectedId);
-  if (current < 0) return 0;
-  if (automatic && state.repeat === 'one') return current;
-  if (state.shuffle && count > 1) {
-    const offset = 1 + Math.floor(clamp(random(), 0, 0.999999) * (count - 1));
-    return (current + offset) % count;
+  if (current < 0) return state.playlist.findIndex(track => canAttemptTrack(track, now));
+  if (automatic && !skipCurrent && state.repeat === 'one' && canAttemptTrack(state.playlist[current], now)) return current;
+  if (state.shuffle) {
+    const candidates = state.playlist.map((track, index) => ({ track, index })).filter(value => value.index !== current && canAttemptTrack(value.track, now));
+    if (candidates.length) return candidates[Math.floor(clamp(random(), 0, 0.999999) * candidates.length)].index;
+    return !skipCurrent && canAttemptTrack(state.playlist[current], now) && (!automatic || state.repeat !== 'off') ? current : -1;
   }
-  const next = current + direction;
-  if (automatic && next >= count && state.repeat === 'off') return -1;
-  return (next + count) % count;
+  for (let step = 1; step <= count; step++) {
+    const raw = current + step * direction;
+    if (automatic && state.repeat === 'off' && (raw >= count || raw < 0)) return -1;
+    const index = (raw % count + count) % count;
+    if (skipCurrent && index === current) continue;
+    if (canAttemptTrack(state.playlist[index], now)) return index;
+  }
+  return -1;
 }
 
 export function formatTime(seconds) {

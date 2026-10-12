@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createAppServer } from '../server.mjs';
+import { playlistPage } from './fixtures/playlist.mjs';
 
 async function withServer(fetcher, run) {
   const server = createAppServer({ fetcher });
@@ -45,5 +46,17 @@ test('failed title lookups produce a recoverable error while the app still serve
     assert.equal(response.status, 502);
     assert.match((await response.json()).error, /still add and play/);
     assert.equal((await fetch(base)).status, 200);
+  });
+});
+test('playlist listing fallback validates its ID and fetches only the public YouTube listing', async () => {
+  const requests = [];
+  await withServer(async url => { requests.push(url); return { ok: true, text: async () => playlistPage([{ lockupViewModel: { contentId: 'c8fu7tkc2Iw', contentType: 'LOCKUP_CONTENT_TYPE_VIDEO', metadata: { lockupMetadataViewModel: { title: { content: 'First' } } } } }]) }; }, async base => {
+    assert.equal((await fetch(`${base}/api/playlist?id=https://evil.test`)).status, 400);
+    assert.equal(requests.length, 0);
+    const response = await fetch(`${base}/api/playlist?id=PL_public`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).tracks[0].id, 'c8fu7tkc2Iw');
+    assert.equal(requests[0].origin, 'https://www.youtube.com');
+    assert.equal(requests[0].pathname, '/playlist');
   });
 });

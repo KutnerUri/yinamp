@@ -1,6 +1,7 @@
-import { STORAGE_KEY, SKINS, initialState, validateSkin, parseVideoInput, nextTrackIndex, formatTime, clamp } from './core.js';
+import { STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp } from './core.js';
 import { YouTubePlayer } from './youtube.js';
 import { setupPanels } from './panels.js';
+import { readPlaylistWithFallback } from './playlist-import.js';
 
 const $ = selector => document.querySelector(selector);
 let stored;
@@ -13,6 +14,10 @@ let stopped = false;
 let hasError = false;
 let wantsPlayback = false;
 let noticeTimeout;
+let playlistImport;
+let playbackRequested = false;
+let skipTimer;
+let retryingId = null;
 const currentTrack = () => state.playlist.find(track => track.id === state.selectedId);
 
 function notify(message, error = false) {
@@ -39,15 +44,26 @@ const player = new YouTubePlayer({
     if (hasError) return;
     playback = ({ '-1': 'READY', 0: 'ENDED', 1: 'PLAYING', 2: stopped ? 'STOPPED' : 'PAUSED', 3: 'BUFFERING', 5: 'READY' })[code] ?? 'READY';
     wantsPlayback = code === 1 || code === 3;
+    if (code === 1) {
+      playbackRequested = true;
+      retryingId = null;
+      if (currentTrack()?.unavailable) { delete currentTrack().unavailable; renderPlaylist(); persist(); }
+    }
+    if (code === 2) { playbackRequested = false; clearTimeout(skipTimer); }
     if (code === 0 && !stopped && currentTrack()) {
       const next = nextTrackIndex(state, { automatic: true });
       if (next >= 0) { selectTrack(state.playlist[next].id, true); return; }
+      playbackRequested = false;
     }
     if (!currentTrack()) playback = 'EMPTY';
     updatePlayback();
     updateProgress();
   },
-  onError(message) {
+  onError(message, { code } = {}) {
+    const track = currentTrack();
+    const continueQueue = playbackRequested;
+    clearTimeout(skipTimer);
+    retryingId = null;
     hasError = true;
     wantsPlayback = false;
     playback = 'UNAVAILABLE';
@@ -57,10 +73,29 @@ const player = new YouTubePlayer({
     $('#connection-light').classList.remove('connected');
     updatePlayback();
     panels.refresh();
+    if (track && TRACK_ERROR_CODES.has(code)) {
+      track.unavailable = { code, message, checkedAt: Date.now() };
+      renderPlaylist(); persist();
+      if (continueQueue) {
+        const failedId = track.id;
+        skipTimer = setTimeout(() => {
+          if (!playbackRequested || state.selectedId !== failedId) return;
+          const next = nextTrackIndex(state, { automatic: true, skipCurrent: true });
+          if (next >= 0) { notify(`Skipped unavailable video: ${track.title}`); selectTrack(state.playlist[next].id, true); }
+          else {
+            playbackRequested = false; stopped = true; player.pause();
+            playback = state.playlist.some(value => canAttemptTrack(value)) ? 'QUEUE FINISHED' : 'NO PLAYABLE TRACKS';
+            $('#player-error-message').textContent = `${message} No playable tracks remain in this pass. Use a track’s Retry button to try again.`;
+            updatePlayback(); notify('Playback stopped. Unavailable tracks stay in your playlist for a later retry.');
+          }
+        }, 450);
+      }
+    } else { playbackRequested = false; }
   },
   onAutoplayBlocked() {
     playback = 'PRESS PLAY';
     wantsPlayback = false;
+    playbackRequested = false;
     updatePlayback();
     notify('Your browser paused autoplay. Press play in the video window to start.');
   },
@@ -127,18 +162,29 @@ function renderPlaylist() {
     const row = document.createElement('li');
     row.dataset.trackId = track.id;
     row.classList.toggle('current', track.id === state.selectedId);
+    row.classList.toggle('unavailable', Boolean(track.unavailable));
     const select = document.createElement('button');
     select.type = 'button';
     select.className = 'track-select';
     select.dataset.action = 'select';
     select.setAttribute('aria-pressed', String(track.id === state.selectedId));
     select.setAttribute('aria-label', `Select ${track.title}`);
-    for (const [className, text] of [['track-number', String(index + 1).padStart(2, '0') + '.'], ['track-name', track.title], ['track-duration', track.duration ? formatTime(track.duration) : '--:--']]) {
-      const span = document.createElement('span'); span.className = className; span.textContent = text; select.append(span);
+    const number = document.createElement('span'); number.className = 'track-number'; number.textContent = String(index + 1).padStart(2, '0') + '.';
+    const copy = document.createElement('span'); copy.className = 'track-copy';
+    const name = document.createElement('span'); name.className = 'track-name'; name.textContent = track.title; name.title = track.title; copy.append(name);
+    if (track.unavailable) {
+      const status = document.createElement('span'); status.className = 'track-availability'; status.textContent = retryingId === track.id ? 'RETRYING…' : 'UNAVAILABLE'; status.title = track.unavailable.message; copy.append(status);
     }
+    const duration = document.createElement('span'); duration.className = 'track-duration'; duration.textContent = track.duration ? formatTime(track.duration) : '--:--';
+    select.append(number, copy, duration);
     select.addEventListener('click', () => selectTrack(track.id, playback === 'PLAYING'));
     select.addEventListener('dblclick', () => selectTrack(track.id, true));
     const tools = document.createElement('div'); tools.className = 'track-tools';
+    if (track.unavailable) {
+      const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = '↻'; retry.dataset.action = 'retry'; retry.setAttribute('aria-label', `Retry ${track.title}`); retry.title = 'Retry this video'; retry.onclick = () => retryTrack(track.id);
+      const open = document.createElement('a'); open.textContent = '↗'; open.href = `https://www.youtube.com/watch?v=${track.id}`; open.target = '_blank'; open.rel = 'noopener noreferrer'; open.setAttribute('aria-label', `Open ${track.title} on YouTube`); open.title = 'Open on YouTube';
+      tools.append(retry, open);
+    }
     for (const [action, label, symbol] of [['up', 'Move up', '↑'], ['down', 'Move down', '↓'], ['remove', 'Remove', '×']]) {
       const button = document.createElement('button'); button.type = 'button'; button.textContent = symbol; button.dataset.action = action;
       button.setAttribute('aria-label', `${label} ${track.title}`);
@@ -150,7 +196,9 @@ function renderPlaylist() {
   });
   if (!state.playlist.length) { const empty = document.createElement('li'); empty.className = 'playlist-empty'; empty.textContent = 'Nothing queued. Add your first video.'; list.append(empty); }
   const total = state.playlist.reduce((sum, track) => sum + track.duration, 0);
-  $('#playlist-summary').textContent = `${state.playlist.length} ${state.playlist.length === 1 ? 'TRACK' : 'TRACKS'}${total ? ` · ${formatTime(total)}` : ''}`;
+  const unavailableCount = state.playlist.filter(track => track.unavailable).length;
+  $('#playlist-summary').textContent = `${state.playlist.length} ${state.playlist.length === 1 ? 'TRACK' : 'TRACKS'}${unavailableCount ? ` · ${unavailableCount} UNAVAILABLE` : total ? ` · ${formatTime(total)}` : ''}`;
+  $('#retry-unavailable').hidden = !unavailableCount;
   if (focusedId && focusedAction) list.querySelector(`[data-track-id="${focusedId}"] [data-action="${focusedAction}"]`)?.focus({ preventScroll: true });
 }
 function clearPlayerError() {
@@ -163,10 +211,13 @@ function clearPlayerError() {
 function selectTrack(id, autoplay = false) {
   const track = state.playlist.find(t => t.id === id);
   if (!track) return;
+  clearTimeout(skipTimer);
   clearPlayerError();
   state.selectedId = id;
   stopped = false;
   wantsPlayback = autoplay;
+  playbackRequested = autoplay;
+  retryingId = track.unavailable && autoplay ? id : null;
   playback = player.ready ? (autoplay ? 'BUFFERING' : 'READY') : 'CONNECTING';
   updateTrack(); renderPlaylist(); updatePlayback(); persist();
   player.load(track, autoplay);
@@ -180,12 +231,12 @@ function moveTrack(id, direction) {
 }
 function removeTrack(id) {
   const index = state.playlist.findIndex(t => t.id === id);
-  const wasPlaying = playback === 'PLAYING';
+  const wasPlaying = playbackRequested;
   state.playlist.splice(index, 1);
   if (state.selectedId === id) {
     const next = state.playlist[Math.min(index, state.playlist.length - 1)];
     if (next) selectTrack(next.id, wasPlaying);
-    else { state.selectedId = null; stopped = true; wantsPlayback = false; playback = 'EMPTY'; clearPlayerError(); player.load(null); updateTrack(); updatePlayback(); }
+    else { clearTimeout(skipTimer); state.selectedId = null; stopped = true; wantsPlayback = false; playbackRequested = false; playback = 'EMPTY'; clearPlayerError(); player.load(null); updateTrack(); updatePlayback(); }
   }
   renderPlaylist(); persist();
   notify('Track removed.');
@@ -193,20 +244,34 @@ function removeTrack(id) {
 function navigate(direction) {
   const index = nextTrackIndex(state, { direction });
   if (index >= 0) selectTrack(state.playlist[index].id, true);
+  else notify('No playable tracks are available. Use Retry on an unavailable track.');
+}
+function retryTrack(id) {
+  if (!state.playlist.some(track => track.id === id)) return;
+  selectTrack(id, true);
+  notify('Retrying the video…');
+}
+function retryUnavailable() {
+  const tracks = state.playlist.filter(track => track.unavailable);
+  for (const track of tracks) track.unavailable.checkedAt = 0;
+  persist(); renderPlaylist();
+  if (!playbackRequested && tracks.length) retryTrack(tracks[0].id);
+  else notify('Unavailable tracks will be tried again as the playlist reaches them.');
 }
 function play() {
   if (!currentTrack()) return;
-  if (hasError) { retryPlayer(); return; }
-  stopped = false; wantsPlayback = true;
+  if (hasError) { if (currentTrack().unavailable && player.ready) retryTrack(state.selectedId); else retryPlayer(true); return; }
+  stopped = false; wantsPlayback = true; playbackRequested = true;
+  if (currentTrack().unavailable && player.ready) { retryTrack(state.selectedId); return; }
   if (player.ready) player.play();
   else { player.load(currentTrack(), true); notify('Connecting to YouTube…'); }
 }
-function pause() { wantsPlayback = false; if (!player.ready) player.load(currentTrack(), false); player.pause(); }
-function stop() { stopped = true; wantsPlayback = false; player.stop(); if (!player.ready) player.load(currentTrack(), false); playback = currentTrack() ? 'STOPPED' : 'EMPTY'; updatePlayback(); $('#time').textContent = '00:00'; $('#seek').value = 0; }
+function pause() { playbackRequested = false; clearTimeout(skipTimer); wantsPlayback = false; if (!player.ready) player.load(currentTrack(), false); player.pause(); }
+function stop() { playbackRequested = false; clearTimeout(skipTimer); stopped = true; wantsPlayback = false; player.stop(); if (!player.ready) player.load(currentTrack(), false); playback = currentTrack() ? 'STOPPED' : 'EMPTY'; updatePlayback(); $('#time').textContent = '00:00'; $('#seek').value = 0; }
 function setVolume(value) { state.volume = clamp(value, 0, 100); state.muted = false; player.volume(state.volume, state.muted); updateModes(); persist(); }
 function toggleMute() { state.muted = !state.muted; player.volume(state.volume, state.muted); updateModes(); persist(); }
 function togglePanel(key) { state.visibility[key] = !state.visibility[key]; updateModes(); persist(); }
-function retryPlayer() { clearPlayerError(); playback = 'CONNECTING'; updatePlayback(); $('#connection-light').innerHTML = '<span class="connection-dot"></span> CONNECTING'; $('#connection-light').classList.remove('connected'); $('#video-placeholder').hidden = false; $('#video-placeholder-note').textContent = 'Reconnecting to YouTube…'; player.initialize(); player.load(currentTrack(), false); }
+function retryPlayer(autoplay = true) { clearTimeout(skipTimer); playbackRequested = autoplay; stopped = false; clearPlayerError(); playback = 'CONNECTING'; updatePlayback(); $('#connection-light').innerHTML = '<span class="connection-dot"></span> CONNECTING'; $('#connection-light').classList.remove('connected'); $('#video-placeholder').hidden = false; $('#video-placeholder-note').textContent = 'Reconnecting to YouTube…'; player.initialize(); player.load(currentTrack(), autoplay); }
 
 function updateProgress() {
   if (!player.ready || hasError || !currentTrack()) return;
@@ -237,7 +302,7 @@ function download(value, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function showDialog(id) { const dialog = $(`#${id}`); if (!dialog.open) dialog.showModal(); }
-function openAdd() { $('#add-error').hidden = true; showDialog('add-dialog'); $('#video-url').focus(); }
+function openAdd() { $('#add-error').hidden = true; updateAddForm(); showDialog('add-dialog'); $('#video-url').focus(); }
 for (const button of document.querySelectorAll('[data-dismiss]')) button.addEventListener('click', () => button.closest('dialog').close());
 for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } });
 $('#open-add').onclick = openAdd; $('#playlist-add').onclick = openAdd;
@@ -254,17 +319,97 @@ $('#shuffle').onclick = () => { state.shuffle = !state.shuffle; updateModes(); p
 $('#repeat').onclick = () => { state.repeat = { off: 'all', all: 'one', one: 'off' }[state.repeat]; updateModes(); persist(); notify(`Repeat ${state.repeat}.`); };
 $('#toggle-eq').onclick = () => togglePanel('eq'); $('#toggle-playlist').onclick = () => togglePanel('playlist');
 for (const button of document.querySelectorAll('[data-close]')) button.onclick = () => togglePanel(button.dataset.close);
-$('#retry-player').onclick = retryPlayer;
+$('#retry-player').onclick = () => retryPlayer(true);
+$('#retry-unavailable').onclick = retryUnavailable;
 $('#seek').oninput = event => { seeking = true; $('#time').textContent = formatTime(event.target.value); };
 $('#seek').onchange = event => { stopped = false; player.seek(Number(event.target.value)); seeking = false; };
 $('#seek').addEventListener('pointercancel', () => { seeking = false; });
 $('#seek').addEventListener('blur', () => { seeking = false; });
 
-$('#add-form').onsubmit = event => {
-  event.preventDefault();
+function updateAddForm() {
   let parsed;
-  try { parsed = parseVideoInput($('#video-url').value); }
+  try { parsed = parseYouTubeInput($('#video-url').value); } catch { /* Validate on submission. */ }
+  const hasPlaylist = parsed?.type === 'playlist';
+  const wholePlaylist = hasPlaylist && (!parsed.video || $('#include-playlist').checked);
+  $('#playlist-option').hidden = !hasPlaylist || !parsed.video;
+  $('#video-title-field').hidden = wholePlaylist;
+  $('#add-submit').textContent = wholePlaylist ? 'ADD PLAYLIST' : 'ADD VIDEO';
+  $('#add-hint').textContent = wholePlaylist ? 'Append this playlist’s available videos. Tracks already queued are skipped.' : 'Add one video or import a public YouTube playlist.';
+}
+function setAddBusy(busy) {
+  $('#add-form').setAttribute('aria-busy', String(busy));
+  for (const id of ['video-url', 'video-title', 'include-playlist', 'add-submit']) $(`#${id}`).disabled = busy;
+  $('#playlist-preview').hidden = !busy;
+  $('#add-status').hidden = !busy;
+  if (busy) { $('#add-submit').textContent = 'LOADING…'; $('#add-status').textContent = 'Loading the playlist from YouTube…'; }
+  else updateAddForm();
+}
+async function fillTrackTitles(tracks) {
+  const remaining = [...tracks];
+  const worker = async () => {
+    while (remaining.length) {
+      const track = remaining.shift();
+      try {
+        const response = await fetch(`/api/video?id=${encodeURIComponent(track.id)}`);
+        if (!response.ok) continue;
+        const data = await response.json();
+        if (typeof data.title !== 'string' || !state.playlist.includes(track)) continue;
+        track.title = data.title;
+        renderPlaylist();
+        if (state.selectedId === track.id) { $('#track-title').textContent = track.title.toUpperCase(); $('#track-title').title = track.title; updatePlayback(); }
+        persist();
+      } catch { /* A title lookup never prevents playback. */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, tracks.length) }, worker));
+}
+$('#video-url').oninput = () => { $('#include-playlist').checked = true; $('#add-error').hidden = true; updateAddForm(); };
+$('#include-playlist').onchange = updateAddForm;
+$('#add-dialog').addEventListener('close', () => playlistImport?.abort());
+$('#add-dialog').addEventListener('cancel', () => playlistImport?.abort());
+
+$('#add-form').onsubmit = async event => {
+  event.preventDefault();
+  if (playlistImport) return;
+  let parsed;
+  try { parsed = parseYouTubeInput($('#video-url').value); }
   catch (error) { $('#add-error').textContent = error.message; $('#add-error').hidden = false; return; }
+  const wholePlaylist = parsed.type === 'playlist' && (!parsed.video || $('#include-playlist').checked);
+  if (wholePlaylist) {
+    if (state.playlist.length >= 500) { $('#add-error').textContent = 'Your playlist is full (500 tracks). Remove a track first.'; $('#add-error').hidden = false; return; }
+    const controller = new AbortController();
+    playlistImport = controller;
+    $('#add-error').hidden = true;
+    setAddBusy(true);
+    try {
+      const source = await readPlaylistWithFallback(parsed.playlistId, {
+        container: $('#playlist-preview'), signal: controller.signal,
+        onFallback: () => { $('#playlist-preview').hidden = true; $('#add-status').textContent = 'Reading the public playlist listing…'; },
+      });
+      if (controller.signal.aborted || !$('#add-dialog').open) return;
+      const result = appendPlaylistTracks(state.playlist, source.ids);
+      const titles = new Map(source.tracks.map(track => [track.id, track.title]));
+      for (const track of result.added) {
+        const title = titles.get(track.id);
+        if (typeof title === 'string') track.title = title.slice(0, 300);
+      }
+      state.playlist.push(...result.added);
+      if (!state.selectedId && result.added.length) selectTrack(result.added[0].id);
+      else { renderPlaylist(); persist(); }
+      $('#add-dialog').close(); $('#add-form').reset();
+      const details = [result.duplicates ? `${result.duplicates} already queued` : '', result.overflow ? `${result.overflow} skipped at the 500-track limit` : ''].filter(Boolean);
+      if (source.partial) details.push('YouTube’s public listing exposes only the first page of this playlist');
+      notify(`${result.added.length ? `Added ${result.added.length} videos.` : 'This playlist is already queued.'}${details.length ? ` ${details.join('; ')}.` : ''}`);
+      void fillTrackTitles(result.added.filter(track => !titles.has(track.id)));
+    } catch (error) {
+      if (error.name !== 'AbortError' && $('#add-dialog').open) { $('#add-error').textContent = error.message; $('#add-error').hidden = false; }
+    } finally {
+      if (playlistImport === controller) { playlistImport = null; setAddBusy(false); }
+    }
+    return;
+  }
+  if (parsed.type === 'playlist') parsed = parsed.video;
+  else { const { id, start } = parsed; parsed = { id, start }; }
   if (state.playlist.some(track => track.id === parsed.id)) { selectTrack(parsed.id); $('#add-dialog').close(); notify('That video is already in your playlist. Selected it for you.'); return; }
   if (state.playlist.length >= 500) { $('#add-error').textContent = 'Your playlist is full (500 tracks). Remove a track first.'; $('#add-error').hidden = false; return; }
   const title = $('#video-title').value.trim();
@@ -274,10 +419,7 @@ $('#add-form').onsubmit = event => {
   if (first) selectTrack(track.id);
   else { renderPlaylist(); persist(); }
   $('#add-dialog').close(); $('#add-form').reset(); notify('Added to your playlist.');
-  if (!title) fetch(`/api/video?id=${encodeURIComponent(track.id)}`).then(response => response.ok ? response.json() : null).then(data => {
-    if (!data || !state.playlist.includes(track)) return;
-    track.title = data.title; renderPlaylist(); if (state.selectedId === track.id) { $('#track-title').textContent = track.title.toUpperCase(); $('#track-title').title = track.title; updatePlayback(); } persist();
-  }).catch(() => { /* A title lookup never prevents playback. */ });
+  if (!title) void fillTrackTitles([track]);
 };
 
 for (const button of document.querySelectorAll('[data-skin]')) button.onclick = () => { state.skin = structuredClone(SKINS[button.dataset.skin]); renderSkin(); persist(); };

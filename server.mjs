@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve, extname, sep } from 'node:path';
+import { parsePlaylistListing } from './playlist-listing.mjs';
 
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -22,6 +23,23 @@ export function createAppServer({ fetcher = fetch } = {}) {
     }
     try {
       const url = new URL(request.url, 'http://localhost');
+      if (url.pathname === '/api/playlist') {
+        const id = url.searchParams.get('id');
+        if (!/^[\w-]{2,150}$/.test(id ?? '')) return send(400, JSON.stringify({ error: 'Invalid YouTube playlist ID' }));
+        try {
+          const endpoint = new URL('https://www.youtube.com/playlist');
+          endpoint.searchParams.set('list', id);
+          endpoint.searchParams.set('hl', 'en');
+          const upstream = await fetcher(endpoint, { signal: AbortSignal.timeout(8000) });
+          if (!upstream.ok) throw new Error('YouTube’s public playlist listing is unavailable. Please try again.');
+          const html = await upstream.text();
+          if (html.length > 5000000) throw new Error('This playlist listing is too large to import.');
+          return send(200, JSON.stringify(parsePlaylistListing(html, id)));
+        } catch (error) {
+          const message = error.name === 'TimeoutError' ? 'YouTube’s playlist listing took too long to respond. Please try again.' : error instanceof SyntaxError ? 'YouTube’s playlist listing could not be read. Please try again.' : error.message;
+          return send(502, JSON.stringify({ error: message }));
+        }
+      }
       if (url.pathname === '/api/video') {
         const id = url.searchParams.get('id');
         if (!/^[\w-]{11}$/.test(id ?? '')) return send(400, JSON.stringify({ error: 'Invalid YouTube video ID' }));
