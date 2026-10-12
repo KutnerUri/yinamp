@@ -8,8 +8,8 @@ export function readPage() {
     id: new URL(location.href).searchParams.get('v'), hasVideo: Boolean(video), error,
     current: isAd ? 0 : video?.currentTime || 0,
     duration: isAd || !Number.isFinite(video?.duration) ? 0 : video.duration,
-    volume: typeof player?.getVolume === 'function' ? player.getVolume() : video ? video.volume * 100 : 75,
-    muted: typeof player?.isMuted === 'function' ? player.isMuted() : video?.muted ?? false,
+    volume: globalThis.__yinampAudio?.volume ?? (typeof player?.getVolume === 'function' ? player.getVolume() : video ? video.volume * 100 : 75),
+    muted: globalThis.__yinampAudio?.muted ?? (typeof player?.isMuted === 'function' ? player.isMuted() : video?.muted ?? false),
     state: !video ? 3 : video.ended && !isAd ? 0 : video.paused ? 2 : video.readyState < 3 || isAd ? 3 : 1,
     ready: Boolean(video && video.readyState >= 1), isAd,
   };
@@ -18,11 +18,12 @@ export function controlPage(command) {
   const video = document.querySelector('video.html5-main-video') ?? document.querySelector('video');
   const player = document.querySelector('#movie_player');
   if (!video) return { waiting: true };
-  if (command.type === 'play') return video.play().then(() => ({ ok: true })).catch(error => ({ blocked: error.name === 'NotAllowedError', error: error.message }));
+  if (command.type === 'play') { void globalThis.__yinampAudio?.context.resume().catch(() => {}); return video.play().then(() => ({ ok: true })).catch(error => ({ blocked: error.name === 'NotAllowedError', error: error.message })); }
   if (command.type === 'pause') video.pause();
   if (command.type === 'stop') { video.pause(); video.currentTime = 0; }
   if (command.type === 'seek') video.currentTime = Math.min(command.value, Number.isFinite(video.duration) ? video.duration : command.value);
   if (command.type === 'volume') {
+    if (globalThis.__yinampAudio) { globalThis.__yinampAudio.setVolume(command.value, command.muted === true); globalThis.__yinampAudio.attach(video); return { ok: true }; }
     // The page player may normalize the HTML element's volume; prefer its own user-facing level.
     if (typeof player?.setVolume === 'function') player.setVolume(command.value);
     else video.volume = command.value / 100;

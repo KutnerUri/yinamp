@@ -61,3 +61,14 @@ test('the volume bridge uses YouTube’s user-facing level instead of normalized
   controlPage({ type: 'volume', value: 37, muted: true });
   assert.equal(player.level, 37); assert.equal(readPage().volume, 37); assert.equal(video.muted, true);
 });
+
+ test('desktop graph volume is independent from source volume and used in snapshots', t => {
+  const previous = {document:globalThis.document,location:globalThis.location,graph:globalThis.__yinampAudio};
+  const video={volume:1,muted:false,currentTime:10,duration:200,readyState:4,paused:false};
+  const graph={volume:37,muted:true,setVolume(value,muted){this.volume=value;this.muted=muted;},attach(){}};
+  globalThis.__yinampAudio=graph;
+  globalThis.document={querySelector:selector=>selector.includes('video')?video:null};globalThis.location={href:'https://www.youtube.com/watch?v=IHHq6lAgZzs'};
+  t.after(()=>{globalThis.document=previous.document;globalThis.location=previous.location;if(previous.graph===undefined)delete globalThis.__yinampAudio;else globalThis.__yinampAudio=previous.graph;});
+  assert.equal(readPage().volume,37);assert.equal(readPage().muted,true);
+  controlPage({type:'volume',value:0,muted:false});assert.equal(graph.volume,0);assert.equal(video.volume,1);assert.equal(video.muted,false);
+ });

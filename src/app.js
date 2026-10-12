@@ -1,5 +1,6 @@
 import { STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp } from './core.js';
 import { YouTubePlayer } from './youtube.js';
+import { setupVisualizer } from './visualizer.js';
 import { NativePlayer } from './native-player.js';
 import { setupPanels } from './panels.js';
 import { readPlaylistWithFallback } from './playlist-import.js';
@@ -40,8 +41,11 @@ function persist() {
   catch { if (storageAvailable) notify('Browser storage is full or unavailable. Export your playlist to keep a copy.', true); storageAvailable = false; }
 }
 
+const visualizer = setupVisualizer($('#visualizer'));
+$('#visualizer').setAttribute('aria-label', window.yinampDesktop ? 'Live music spectrum' : 'Audio spectrum unavailable for embedded YouTube playback');
 const Player = window.yinampDesktop ? NativePlayer : YouTubePlayer;
 const player = new Player({
+  onSpectrum: data => visualizer.update(data),
   onReady() {
     player.volume(state.volume, state.muted);
     $('#connection-light').innerHTML = '<span class="connection-dot"></span> CONNECTED';
@@ -71,6 +75,7 @@ const player = new Player({
     updateProgress();
   },
   onError(message, { code } = {}) {
+    visualizer.update();
     const track = currentTrack();
     const continueQueue = playbackRequested;
     clearTimeout(skipTimer);
@@ -112,8 +117,6 @@ const player = new Player({
   },
 });
 
-const bars = Array.from({ length: 20 }, () => document.createElement('span'));
-$('#visualizer').append(...bars);
 const panels = setupPanels(state, persist);
 
 function renderSkin() {
@@ -156,7 +159,7 @@ function updatePlayback() {
   $('#playback-state').textContent = playback;
   $('#play-indicator').textContent = playback === 'PLAYING' ? '▶' : playback === 'PAUSED' ? 'Ⅱ' : '■';
   document.body.classList.toggle('is-playing', playback === 'PLAYING');
-  if (playback !== 'PLAYING') bars.forEach(bar => { bar.style.height = '3px'; });
+  if (['EMPTY', 'STOPPED', 'PAUSED', 'UNAVAILABLE'].includes(playback)) visualizer.update();
   $('#play').setAttribute('aria-pressed', String(playback === 'PLAYING'));
   $('#pause').setAttribute('aria-pressed', String(playback === 'PAUSED'));
   const empty = !currentTrack();
@@ -225,6 +228,7 @@ function selectTrack(id, autoplay = false) {
   clearTimeout(skipTimer);
   clearPlayerError();
   state.selectedId = id;
+  visualizer.update();
   stopped = false;
   wantsPlayback = autoplay;
   playbackRequested = autoplay;
@@ -303,8 +307,7 @@ function updateProgress() {
   if (Number.isFinite(progress.volume) && (Math.round(progress.volume) !== Math.round(state.volume) || progress.muted !== state.muted)) {
     state.volume = progress.volume; state.muted = progress.muted; updateModes(); persist();
   }
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  bars.forEach((bar, index) => { bar.style.height = playback === 'PLAYING' ? `${reducedMotion ? 6 + (index * 7 % 17) : 3 + Math.random() * 23}px` : '3px'; });
+
 }
 
 function download(value, filename) {

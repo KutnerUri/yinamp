@@ -5,9 +5,11 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { createAppServer } from '../server.mjs';
+import { SPECTRUM_INTERVAL_MS } from '../src/spectrum-config.js';
 import { initialState } from '../src/core.js';
 import { YOUTUBE_PARTITION, INTERFACE_PARTITION, accountURL, isAccountURL, watchURL, isYouTubeURL, isExternalURL, viewBounds, validateCommand } from './contracts.mjs';
 import { snapshotScript, commandScript, playerLayoutCSS } from './page-scripts.mjs';
+import { installSpectrumScript, readSpectrumScript, spectrumVolumeCSS } from './audio-spectrum.mjs';
 import { accountSnapshot, accountState, accountStatusScript, isAccountStatusPage, navigationDetails } from './account.mjs';
 import { createMusicLibrary } from './library.mjs';
 
@@ -17,6 +19,7 @@ if (profile) app.setPath('userData', resolve(profile.slice('--profile='.length))
 const directory = fileURLToPath(new URL('.', import.meta.url));
 let server, win, view, origin;
 let writeQueue = Promise.resolve();
+let spectrumPoll, spectrumReading = false, spectrumActive = false;
 let poll, polling = false, requestedId = null, initializedVideo = false, loading = false;
 let wantsPlay = false, volume = 75, muted = false, lastError = '', loadVersion = 0;
 let commandQueue = Promise.resolve();
@@ -112,7 +115,8 @@ async function pollVideo() {
     if (!data.hasVideo) return;
     if (!initializedVideo && data.ready) {
       initializedVideo = true;
-      await view.webContents.insertCSS(playerLayoutCSS);
+      try { await view.webContents.executeJavaScript(installSpectrumScript({ volume, muted }), true); } catch { /* Keep ordinary playback if Web Audio is unavailable. */ }
+      await view.webContents.insertCSS(playerLayoutCSS + (await view.webContents.executeJavaScript('Boolean(window.__yinampAudio)') ? spectrumVolumeCSS : ''));
       await execute({ type: 'volume', value: volume, muted });
       const result = await execute({ type: pendingStop ? 'stop' : wantsPlay ? 'play' : 'pause' });
       pendingStop = false;
@@ -129,9 +133,25 @@ async function pollVideo() {
   } catch { /* Page navigation may briefly destroy its JavaScript context. */ }
   finally { polling = false; }
 }
+async function pollSpectrum() {
+  if (shuttingDown || spectrumReading || loading || !initializedVideo || !win || win.isDestroyed() || !win.isVisible() || win.isMinimized() || !view?.webContents || view.webContents.isDestroyed()) return;
+  if (lastSnapshot.state === 2 || lastSnapshot.state === 0) return;
+  spectrumReading = true;
+  const version = loadVersion;
+  try {
+    const data = await view.webContents.executeJavaScript(readSpectrumScript);
+    if (version === loadVersion && !loading && (data.active || spectrumActive !== data.active)) {
+      spectrumActive = data.active;
+      send({ type: 'spectrum', data });
+    }
+  } catch { /* Navigation destroys the old page graph; the new page installs its own. */ }
+  finally { spectrumReading = false; }
+}
 async function loadVideo(command) {
   if (shuttingDown || !view?.webContents || view.webContents.isDestroyed()) return;
   requestedId = command.id;
+  spectrumActive = false;
+  send({ type: 'spectrum', data: { active: false, bands: [] } });
   playerAccount = accountSnapshot({ status: command.id ? 'checking' : 'unknown' }); publishAccount();
   lastSnapshot = { current: command.start || 0 };
   initializedVideo = false; lastError = ''; wantsPlay = command.autoplay === true;
@@ -325,6 +345,7 @@ async function start() {
     void pollVideo();
     return result;
   });
+  spectrumPoll = setInterval(() => void pollSpectrum(), SPECTRUM_INTERVAL_MS);
   poll = setInterval(() => void pollVideo(), 300);
   accountPoll = setInterval(() => void refreshAccountStatus(), 4000);
   await win.loadURL(origin + '/');
@@ -333,13 +354,13 @@ async function start() {
   view.webContents.on('before-input-event', (_event, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && win.isFullScreen()) win.setFullScreen(false);
   });
-  win.on('closed', () => { clearInterval(poll); clearInterval(accountPoll); if (view.webContents && !view.webContents.isDestroyed()) view.webContents.close(); app.quit(); });
+  win.on('closed', () => { clearInterval(poll); clearInterval(spectrumPoll); clearInterval(accountPoll); if (view.webContents && !view.webContents.isDestroyed()) view.webContents.close(); app.quit(); });
   app.on('before-quit', event => {
     if (shuttingDown) return;
     event.preventDefault(); shuttingDown = true;
     diagnostic('shutdown');
     library.invalidate();
-    clearInterval(poll);
+    clearInterval(poll); clearInterval(spectrumPoll);
     clearInterval(accountPoll);
     writeQueue.catch(() => {}).finally(() => { server.close(); app.quit(); });
   });

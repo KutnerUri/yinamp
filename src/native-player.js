@@ -9,8 +9,10 @@ export class NativePlayer {
     this.unsubscribe = this.bridge.onPlayer(event => {
       if (event.type === 'snapshot') {
         this.data = event.data;
+        if ([0, 2].includes(event.data.state)) this.handlers.onSpectrum?.({ active: false, bands: [] });
         if (event.data.state !== this.lastState) { this.lastState = event.data.state; this.handlers.onState(event.data.state); }
-      } else if (event.type === 'error') this.handlers.onError(event.message, { code: event.code });
+      } else if (event.type === 'spectrum') this.handlers.onSpectrum?.(event.data);
+      else if (event.type === 'error') this.handlers.onError(event.message, { code: event.code });
       else if (event.type === 'autoplay-blocked') this.handlers.onAutoplayBlocked();
       else if (event.type === 'fullscreen' && !event.enabled) document.body.classList.remove('native-video-fullscreen');
     });
