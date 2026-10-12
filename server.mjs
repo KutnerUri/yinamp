@@ -1,3 +1,4 @@
+import { queryTrackVersions } from './music-versions.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -64,6 +65,18 @@ export function createAppServer({ fetcher = fetch } = {}) {
           const message = error.name === 'TimeoutError' ? 'YouTube’s playlist listing took too long to respond. Please try again.' : error instanceof SyntaxError ? 'YouTube’s playlist listing could not be read. Please try again.' : error.message;
           return send(502, JSON.stringify({ error: message }));
         }
+      }
+      if (url.pathname === '/api/track-versions') {
+        const id = url.searchParams.get('id');
+        if (!/^[\w-]{11}$/.test(id ?? '')) return send(400, JSON.stringify({ error: 'Invalid YouTube track ID' }));
+        const key = `versions:${id}`;
+        const cached = playlistCache.get(key);
+        if (cached) return send(200, JSON.stringify(cached));
+        try {
+          const result = await queryTrackVersions({ id, fetcher });
+          playlistCache.set(key, result);
+          return send(200, JSON.stringify(result));
+        } catch { return send(502, JSON.stringify({ error: 'Song and video versions could not load. Try again.' })); }
       }
       if (url.pathname === '/api/video') {
         const id = url.searchParams.get('id');

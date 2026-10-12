@@ -1,7 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { YOUTUBE_PARTITION, INTERFACE_PARTITION, accountURL, isAccountURL, watchURL, isYouTubeURL, isExternalURL, viewBounds, validateCommand } from '../electron/contracts.mjs';
-import { controlPage, readPage } from '../electron/page-scripts.mjs';
+import { controlPage, readPage, didProviderAdvance } from '../electron/page-scripts.mjs';
+
+test('recording switches load or cue the existing player and paused cues retain their position', t => {
+  const previous = { document: globalThis.document, location: globalThis.location };
+  const calls = [];
+  let id = 'ZIDqxZKqTK4', time = 0, state = 2;
+  const video = { paused: true, readyState: 0, duration: NaN, currentTime: 0, volume: 1, muted: false };
+  const player = {
+    classList: { contains: () => false }, getVideoData: () => ({ video_id: id }), getPlayerState: () => state, getCurrentTime: () => time,
+    cueVideoById(value) { calls.push(['cue', value]); id = value.videoId; time = value.startSeconds; state = 5; },
+    loadVideoById(value) { calls.push(['load', value]); id = value.videoId; time = value.startSeconds; state = 1; },
+    playVideo() { calls.push(['play']); state = 1; },
+  };
+  globalThis.document = { querySelector: selector => selector === '#movie_player' ? player : selector.includes('video') ? video : null };
+  globalThis.location = { href: 'https://www.youtube.com/watch?v=ZIDqxZKqTK4' };
+  t.after(() => Object.assign(globalThis, previous));
+  assert.deepEqual(controlPage({ type: 'switch', id: 'kgcUJumE2J0', start: 42, autoplay: false }), { switched: true });
+  const snapshot = readPage();
+  assert.equal(snapshot.id, 'kgcUJumE2J0'); assert.equal(snapshot.current, 42); assert.equal(snapshot.state, 5); assert.equal(snapshot.ready, true);
+  controlPage({ type: 'play' });
+  controlPage({ type: 'switch', id: 'ZIDqxZKqTK4', start: 45, autoplay: true });
+  assert.deepEqual(calls, [['cue', { videoId: 'kgcUJumE2J0', startSeconds: 42 }], ['play'], ['load', { videoId: 'ZIDqxZKqTK4', startSeconds: 45 }]]);
+  assert.equal(globalThis.location.href, 'https://www.youtube.com/watch?v=ZIDqxZKqTK4');
+});
+
+test('provider auto-advance reports the ended recording before the player changes its ID', t => {
+  const previous = { document: globalThis.document, location: globalThis.location, video: globalThis.__yinampEndVideo };
+  let id = 'ZIDqxZKqTK4', ended;
+  const video = { readyState: 4, duration: 170, paused: false, volume: 1, addEventListener(type, callback, capture) {
+    assert.equal(type, 'ended'); assert.equal(capture, true); ended = callback;
+  } };
+  const player = { getVideoData: () => ({ video_id: id }), classList: { contains: () => false } };
+  globalThis.document = { querySelector: selector => selector === '#movie_player' ? player : selector.includes('video') ? video : null };
+  globalThis.location = { href: 'https://music.youtube.com/watch?v=ZIDqxZKqTK4' };
+  t.after(() => { globalThis.document = previous.document; globalThis.location = previous.location; globalThis.__yinampEndVideo = previous.video; delete globalThis.__yinampEndedId; });
+  readPage(); ended(); id = 'kgcUJumE2J0';
+  const snapshot = readPage();
+  assert.equal(snapshot.id, 'kgcUJumE2J0'); assert.equal(snapshot.endedId, 'ZIDqxZKqTK4');
+  assert.equal(readPage().endedId, undefined, 'End notifications are delivered once');
+});
+
+test('recording-switch IPC validates IDs, times, autoplay and native modes', () => {
+  const command = { type: 'switch', id: 'kgcUJumE2J0', start: 42, autoplay: false, mode: 'song' };
+  assert.equal(validateCommand(command), command);
+  for (const change of [{ id: 'invalid' }, { start: NaN }, { start: -1 }, { autoplay: 'yes' }, { mode: 'other' }]) assert.throws(() => validateCommand({ ...command, ...change }));
+});
 
 test('desktop transport constructs only normal YouTube watch URLs', () => {
   assert.equal(watchURL('IHHq6lAgZzs'), 'https://www.youtube.com/watch?v=IHHq6lAgZzs');
@@ -72,3 +117,11 @@ test('the volume bridge uses YouTube’s user-facing level instead of normalized
   assert.equal(readPage().volume,37);assert.equal(readPage().muted,true);
   controlPage({type:'volume',value:0,muted:false});assert.equal(graph.volume,0);assert.equal(video.volume,1);assert.equal(video.muted,false);
  });
+
+test('provider queue changes without a media ended event stop auto-advance, while own switches do not finish the queue', () => {
+  assert.equal(didProviderAdvance({ id: 'kgcUJumE2J0' }, 'ZIDqxZKqTK4', true, true), true);
+  assert.equal(didProviderAdvance({ id: 'kgcUJumE2J0' }, 'ZIDqxZKqTK4', false, true), false);
+  assert.equal(didProviderAdvance({ id: 'ZIDqxZKqTK4' }, 'ZIDqxZKqTK4', true, true), false);
+  assert.equal(didProviderAdvance({ id: 'kgcUJumE2J0' }, 'ZIDqxZKqTK4', true, false), false);
+  assert.equal(didProviderAdvance({ id: 'kgcUJumE2J0', isAd: true }, 'ZIDqxZKqTK4', true, true), false);
+});

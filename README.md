@@ -22,11 +22,11 @@ pnpm install
 npm run desktop
 ```
 
-The Electron prototype reuses the player interface but loads normal YouTube **watch pages** in a native `WebContentsView`. The transport buttons control the page’s HTML media element. It starts its own local server, so you don’t need `npm run dev` alongside it. The Electron runtime downloads on first launch if it is not already installed.
+The Electron prototype reuses the player interface but loads normal YouTube **watch pages** in a native `WebContentsView`. The transport buttons control the page’s media player. It starts its own local server, so you don’t need `npm run dev` alongside it. The Electron runtime downloads on first launch if it is not already installed.
 
 The browser and desktop versions have separate saved settings. Use **SAVE** in the browser and **LOAD** in the desktop app to transfer a playlist. Desktop settings are stored in `yinamp-state.json` inside Electron’s Yinamp user-data directory. Imported iframe-specific embedding failure marks are cleared so those videos can be tried with the desktop player.
 
-The native view follows the video panel when dragged and hides while dialogs are open or another window covers it; audio can continue. The fullscreen button expands the video panel; Escape returns to the normal view. The watch-page integration keeps native YouTube player controls and advertisement playback. It is a prototype, not a signed installer, and page layout changes can require updates. YouTube sign-in, consent, regional restrictions, and content availability still apply.
+The native view follows the video panel when dragged and hides while dialogs are open or another window covers it; audio can continue. The fullscreen button expands the video panel; Escape returns to the normal view. The watch-page integration retains the native player and advertisement playback. **VID** in the transport row switches matched song/video recordings inside the existing YouTube player without reloading the page. The pressed state is your saved preference, including on tracks without an alternate version. VID is always clickable to change that preference. Its text lights up only when the music-video recording is playing. If the preferred recording is unavailable, playback stays on the available one. Known pairings remain saved after errors. Yinamp owns track order and stops provider auto-advance when your queue ends. It is a prototype, not a signed installer, and page layout changes can require updates. YouTube sign-in, consent, regional restrictions, and content availability still apply.
 
 ### YouTube account
 

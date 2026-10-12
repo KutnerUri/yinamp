@@ -1,3 +1,4 @@
+import { cleanVersions } from './track-versions.js';
 export const STORAGE_KEY = 'yinamp.v1';
 export const RETRY_AFTER_MS = 15 * 60 * 1000;
 export const TRACK_ERROR_CODES = new Set([2, 5, 100, 101, 150]);
@@ -86,11 +87,15 @@ export function initialState(saved) {
     state.playlist = playlist.filter(t => t && /^[\w-]{11}$/.test(t.id) && !seen.has(t.id) && seen.add(t.id)).slice(0, 500).map(t => {
       const track = { id: t.id, title: typeof t.title === 'string' ? t.title.slice(0, 300) : `YouTube — ${t.id}`, duration: clamp(t.duration, 0, 604800), start: clamp(t.start, 0, 86400) };
       if (TRACK_ERROR_CODES.has(t.unavailable?.code)) track.unavailable = { code: t.unavailable.code, message: typeof t.unavailable.message === 'string' ? t.unavailable.message.slice(0, 300) : 'This video could not be played.', checkedAt: Number.isFinite(t.unavailable.checkedAt) ? clamp(t.unavailable.checkedAt, 0, Date.now()) : 0 };
+      if (t.versionsChecked === true) track.versionsChecked = true;
+      const versions = cleanVersions(t.versions);
+      if (Object.keys(versions).length) track.versions = versions;
       return track;
     });
     state.selectedId = state.playlist.some(t => t.id === saved.selectedId) ? saved.selectedId : state.playlist[0]?.id ?? null;
   }
   if (typeof saved.volume === 'number') state.volume = clamp(saved.volume, 0, 100);
+  if (['song', 'video'].includes(saved.playbackMode)) state.playbackMode = saved.playbackMode;
   state.muted = saved.muted === true;
   state.shuffle = saved.shuffle === true;
   if (['off', 'all', 'one'].includes(saved.repeat)) state.repeat = saved.repeat;

@@ -1,25 +1,54 @@
 // These scripts control the ordinary page's HTML media element. No media URLs are extracted.
+export function didProviderAdvance(data, requestedId, initialized, providerPage) {
+  return Boolean(requestedId && !data.isAd && (data.endedId === requestedId || initialized && providerPage && data.id && data.id !== requestedId));
+}
+
 export function readPage() {
   const video = document.querySelector('video.html5-main-video') ?? document.querySelector('video');
   const player = document.querySelector('#movie_player');
+  const id = player?.getVideoData?.()?.video_id || new URL(location.href).searchParams.get('v');
+  if (video?.addEventListener && globalThis.__yinampEndVideo !== video) {
+    globalThis.__yinampEndVideo = video;
+    video.addEventListener('ended', () => {
+      if (video.__yinampObservedAd || player?.classList.contains('ad-showing')) return;
+      globalThis.__yinampEndedId = video.__yinampObservedId;
+    }, true);
+  }
+  if (video) video.__yinampObservedId = id;
+  const endedId = globalThis.__yinampEndedId;
+  delete globalThis.__yinampEndedId;
   const isAd = player?.classList.contains('ad-showing') ?? false;
+  if (video) video.__yinampObservedAd = isAd;
+  const cued = player?.getPlayerState?.() === 5;
   const error = document.querySelector('.ytp-error-content-wrap-reason')?.textContent?.trim() ?? '';
   return {
-    id: new URL(location.href).searchParams.get('v'), hasVideo: Boolean(video), error,
-    current: isAd ? 0 : video?.currentTime || 0,
+    id, endedId, hasVideo: Boolean(video), error,
+    current: isAd ? 0 : cued ? player.getCurrentTime() || 0 : video?.currentTime || 0,
     duration: isAd || !Number.isFinite(video?.duration) ? 0 : video.duration,
     volume: globalThis.__yinampAudio?.volume ?? (typeof player?.getVolume === 'function' ? player.getVolume() : video ? video.volume * 100 : 75),
     muted: globalThis.__yinampAudio?.muted ?? (typeof player?.isMuted === 'function' ? player.isMuted() : video?.muted ?? false),
-    state: !video ? 3 : video.ended && !isAd ? 0 : video.paused ? 2 : video.readyState < 3 || isAd ? 3 : 1,
-    ready: Boolean(video && video.readyState >= 1), isAd,
+    state: cued ? 5 : !video ? 3 : video.ended && !isAd ? 0 : video.paused ? 2 : video.readyState < 3 || isAd ? 3 : 1,
+    ready: cued || Boolean(video && video.readyState >= 1), isAd,
   };
 }
 export function controlPage(command) {
   const video = document.querySelector('video.html5-main-video') ?? document.querySelector('video');
   const player = document.querySelector('#movie_player');
+  const autonav = document.querySelector('.ytp-autonav-toggle-button');
+  if (autonav?.getAttribute?.('aria-checked') === 'true') autonav.click();
+  if (command.type === 'switch') {
+    const method = command.autoplay ? 'loadVideoById' : 'cueVideoById';
+    if (typeof player?.[method] !== 'function') return { error: 'This player could not switch recordings. Click VID to retry.' };
+    player[method]({ videoId: command.id, startSeconds: command.start ?? 0 });
+    return { switched: true };
+  }
   if (!video) return { waiting: true };
-  if (command.type === 'play') { void globalThis.__yinampAudio?.context.resume().catch(() => {}); return video.play().then(() => ({ ok: true })).catch(error => ({ blocked: error.name === 'NotAllowedError', error: error.message })); }
-  if (command.type === 'pause') video.pause();
+  if (command.type === 'play') {
+    void globalThis.__yinampAudio?.context.resume().catch(() => {});
+    if (player?.getPlayerState?.() === 5 && typeof player?.playVideo === 'function') { player.playVideo(); return { ok: true }; }
+    return video.play().then(() => ({ ok: true })).catch(error => ({ blocked: error.name === 'NotAllowedError', error: error.message }));
+  }
+  if (command.type === 'pause') { if (typeof player?.pauseVideo === 'function') player.pauseVideo(); else video.pause(); }
   if (command.type === 'stop') { video.pause(); video.currentTime = 0; }
   if (command.type === 'seek') video.currentTime = Math.min(command.value, Number.isFinite(video.duration) ? video.duration : command.value);
   if (command.type === 'volume') {

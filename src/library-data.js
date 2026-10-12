@@ -87,28 +87,59 @@ export function playlistURL(value) {
 
 export function parsePlaylistTracks(data) {
   const text = value => value?.simpleText ?? value?.runs?.map(run => run.text ?? '').join('') ?? '';
-  const tracks = [], seen = new Set(), visited = new WeakSet(); let partial = false;
-  function row(value) {
+  const tracks = [], seen = new Map(), visited = new WeakSet(); let partial = false;
+  function row(value, counterpart) {
     const old = value.playlistVideoRenderer ?? value.playlistPanelVideoRenderer;
     const music = value.musicResponsiveListItemRenderer;
     const modern = value.lockupViewModel ?? value.richItemRenderer?.content?.lockupViewModel;
     const id = old?.videoId ?? music?.playlistItemData?.videoId ?? music?.navigationEndpoint?.watchEndpoint?.videoId ?? (modern?.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO' ? modern.contentId : null);
-    if (!/^[\w-]{11}$/.test(id ?? '') || seen.has(id) || old?.isPlayable === false) return;
-    seen.add(id);
+    if (!/^[\w-]{11}$/.test(id ?? '') || old?.isPlayable === false || old?.unplayableText) return;
     const title = text(old?.title ?? music?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text) || modern?.metadata?.lockupMetadataViewModel?.title?.content || `YouTube — ${id}`;
     const length = text(old?.lengthText ?? music?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text);
     const duration = /^\d+(?::\d{2}){1,2}$/.test(length) ? length.split(':').reduce((total, part) => total * 60 + Number(part), 0) : 0;
-    tracks.push({ id, title: title.slice(0, 300), duration, start: 0 });
+    const track = { id, title: title.slice(0, 300), duration, start: 0 };
+    const versions = {};
+    const kind = renderer => {
+      const type = renderer?.navigationEndpoint?.watchEndpoint?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType;
+      return type === 'MUSIC_VIDEO_TYPE_ATV' ? 'song' : type === 'MUSIC_VIDEO_TYPE_OMV' ? 'video' : null;
+    };
+    // Some queue copies omit the primary type but retain the counterpart's type.
+    const otherKind = kind(counterpart);
+    const mode = kind(old ?? music) ?? (otherKind === 'song' ? 'video' : otherKind === 'video' ? 'song' : null);
+    if (mode) versions[mode] = { id, duration };
+    const otherId = counterpart?.videoId;
+    const otherMode = kind(counterpart) ?? (mode === 'song' ? 'video' : mode === 'video' ? 'song' : null);
+    if (otherMode && /^[\w-]{11}$/.test(otherId ?? '') && otherId !== id && counterpart.isPlayable !== false && !counterpart.unplayableText) {
+      const length = text(counterpart.lengthText);
+      const duration = /^\d+(?::\d{2}){1,2}$/.test(length) ? length.split(':').reduce((sum, part) => sum * 60 + Number(part), 0) : 0;
+      versions[otherMode] = { id: otherId, duration };
+    }
+    if (Object.keys(versions).length) track.versions = versions;
+    const previous = seen.get(id);
+    if (previous) {
+      if (track.versions) previous.versions = { ...previous.versions, ...track.versions };
+      if (!previous.duration && duration) previous.duration = duration;
+    } else { seen.set(id, track); tracks.push(track); }
   }
   function walk(value, depth = 0) {
     if (!value || typeof value !== 'object' || depth > 35 || visited.has(value)) return;
     visited.add(value);
+    // The live Music queue exposes an array of wrappers, without a shelf renderer.
+    if (value.playlistPanelVideoWrapperRenderer) {
+      const wrapper = value.playlistPanelVideoWrapperRenderer;
+      row(wrapper.primaryRenderer ?? {}, wrapper.counterpart?.[0]?.counterpartRenderer?.playlistPanelVideoRenderer);
+      return;
+    }
+    if (value.playlistPanelVideoRenderer) { row(value); return; }
     for (const key of ['playlistVideoListRenderer', 'playlistPanelRenderer', 'musicPlaylistShelfRenderer']) if (value[key]) {
       const shelf = value[key]; if (shelf.continuations?.length) partial = true;
       for (const item of shelf.contents ?? []) {
         if (item.continuationItemRenderer) partial = true;
         row(item);
-        if (item.playlistPanelVideoWrapperRenderer?.primaryRenderer) row(item.playlistPanelVideoWrapperRenderer.primaryRenderer);
+        if (item.playlistPanelVideoWrapperRenderer?.primaryRenderer) {
+          const wrapper = item.playlistPanelVideoWrapperRenderer;
+          row(wrapper.primaryRenderer, wrapper.counterpart?.[0]?.counterpartRenderer?.playlistPanelVideoRenderer);
+        }
       }
       return;
     }

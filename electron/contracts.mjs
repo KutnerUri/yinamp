@@ -30,8 +30,13 @@ export function viewBounds(value, viewport) {
   return { x, y, width: Math.max(0, Math.min(viewport.width - x, Math.round(value.width))), height: Math.max(0, Math.min(viewport.height - y, Math.round(value.height))) };
 }
 export function validateCommand(command) {
-  if (!command || !['initialize', 'load', 'play', 'pause', 'stop', 'seek', 'volume', 'fullscreen'].includes(command.type)) throw new Error('Unsupported player command');
+  if (!command || !['initialize', 'load', 'switch', 'play', 'pause', 'stop', 'seek', 'volume', 'fullscreen'].includes(command.type)) throw new Error('Unsupported player command');
   if (command.type === 'load' && command.id !== null) watchURL(command.id, command.start);
+  if (command.type === 'switch') {
+    watchURL(command.id, command.start);
+    if (!Number.isFinite(command.start) || command.start < 0 || command.start > 604800 || typeof command.autoplay !== 'boolean') throw new Error('Invalid recording switch');
+    if (command.mode !== undefined && !['song', 'video'].includes(command.mode)) throw new Error('Invalid recording mode');
+  }
   if (['seek', 'volume'].includes(command.type) && (!Number.isFinite(command.value) || command.value < 0 || command.value > (command.type === 'volume' ? 100 : 604800))) throw new Error('Invalid player value');
   return command;
 }

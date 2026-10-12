@@ -78,6 +78,8 @@ export class YouTubePlayer {
           },
           onStateChange: event => {
             if (generation !== this.generation) return;
+            if (this.switchTarget && (this.player.getVideoData?.()?.video_id !== this.switchTarget || event.data === 0)) return;
+            if (this.switchTarget && [1, 2, 5].includes(event.data)) this.switchTarget = null;
             if (event.data === 5 || event.data === 1) this.cued = true;
             if (event.data === 1) this.playWhenCued = false;
             this.handlers.onState(event.data);
@@ -98,12 +100,17 @@ export class YouTubePlayer {
     }
   }
   load(track, autoplay = false) {
+    this.switchTarget = null;
     this.playWhenCued = autoplay;
     if (!track) { this.pending = null; if (this.ready) this.player.stopVideo(); return; }
     if (!this.ready) { this.pending = { track, autoplay }; return; }
     const parameters = { videoId: track.id, startSeconds: track.start ?? 0 };
     this.cued = false;
     this.player[autoplay ? 'loadVideoById' : 'cueVideoById'](parameters);
+  }
+  switchRecording(track, autoplay) {
+    this.load(track, autoplay);
+    this.switchTarget = track.id;
   }
   play() { if (this.ready) { if (this.cued) this.player.playVideo(); else this.playWhenCued = true; } }
   pause() { this.playWhenCued = false; if (this.ready) this.player.pauseVideo(); }

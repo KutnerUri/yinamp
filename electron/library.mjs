@@ -1,3 +1,4 @@
+import { cleanVersions } from '../src/track-versions.js';
 import { BrowserWindow, WebContentsView, session } from 'electron';
 import { YOUTUBE_PARTITION, isAccountURL, isYouTubeURL } from './contracts.mjs';
 import { accountSnapshot, accountStatusScript } from './account.mjs';
@@ -73,7 +74,10 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
           last = await contents.executeJavaScript(script);
           const values = last.items ?? last.tracks;
           const before = collected.size;
-          for (const item of values ?? []) if (collected.size < 1000) collected.set(item.id, item);
+          for (const item of values ?? []) if (collected.has(item.id) || collected.size < 1000) {
+            const previous = collected.get(item.id);
+            collected.set(item.id, { ...item, ...(previous?.versions || item.versions ? { versions: { ...previous?.versions, ...item.versions } } : {}) });
+          }
           if (last.ready) {
             if (last.signedIn === false && key === 'mine') throw signInError();
             if (collected.size === before && last.height === lastHeight) stale++; else stale = 0;
@@ -131,6 +135,22 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
       const data = { items, partial: result.partial, ...(section === 'discover' ? { excludedOwn: result.items.length - items.length, ownerFilterUnavailable: !result.viewerOwnerId } : {}) };
       if (version !== generation) throw new Error('The account changed. Refresh the library.');
       cache.set(`catalog:${section}`, data); return data;
+    },
+    async versions(id) {
+      if (!/^[\w-]{11}$/.test(id ?? '')) throw new Error('Invalid YouTube track ID');
+      const version = generation;
+      const key = `versions:${id}`;
+      const cached = cache.get(key);
+      if (cached) return cached;
+      // The signed-in Music page supplies its own authentication and entitlements.
+      const url = new URL('https://music.youtube.com/watch');
+      url.searchParams.set('v', id);
+      const listing = await page(url.href, `(${readRenderedPlaylist.toString()})(${parsePlaylistTracks.toString()})`, `watch:${id}`);
+      const track = listing.tracks?.find(track => track.id === id || Object.values(track.versions ?? {}).some(item => item.id === id));
+      const result = { versions: cleanVersions(track?.versions) };
+      if (version !== generation) throw new Error('The account changed. Try again.');
+      cache.set(key, result);
+      return result;
     },
     async playlist(value) {
       const url = playlistURL(value);

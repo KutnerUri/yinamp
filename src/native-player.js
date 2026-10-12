@@ -8,6 +8,8 @@ export class NativePlayer {
     this.lastState = null;
     this.unsubscribe = this.bridge.onPlayer(event => {
       if (event.type === 'snapshot') {
+        if (this.switchTarget && (event.data.id !== this.switchTarget || event.data.state === 0)) return;
+        if (this.switchTarget && [1, 2, 5].includes(event.data.state)) this.switchTarget = null;
         this.data = event.data;
         if ([0, 2].includes(event.data.state)) this.handlers.onSpectrum?.({ active: false, bands: [] });
         if (event.data.state !== this.lastState) { this.lastState = event.data.state; this.handlers.onState(event.data.state); }
@@ -20,7 +22,7 @@ export class NativePlayer {
     document.querySelector('.source-info span:last-child').textContent = 'DESKTOP';
     this.trackLayout();
   }
-  send(command) { return this.bridge.player(command).catch(error => this.handlers.onError(error.message)); }
+  send(command) { return this.bridge.player(command).catch(error => this.handlers.onError(error.message, { unchanged: command.type === 'switch' })); }
   async initialize() {
     this.ready = false;
     await this.send({ type: 'initialize' });
@@ -29,10 +31,21 @@ export class NativePlayer {
     if (this.pending) { const { track, autoplay } = this.pending; this.pending = null; this.load(track, autoplay); }
   }
   load(track, autoplay = false) {
+    this.switchTarget = null;
     if (!this.ready) { this.pending = { track, autoplay }; return; }
     this.lastState = null;
     this.data = { ...this.data, current: 0, duration: 0 };
-    this.send({ type: 'load', id: track?.id ?? null, start: track?.start ?? 0, autoplay });
+    this.send({ type: 'load', id: track?.id ?? null, start: track?.start ?? 0, autoplay, mode: track?.mode });
+  }
+  switchRecording(track, autoplay) {
+    this.switchTarget = track.id;
+    this.lastState = null;
+    this.send({ type: 'switch', id: track.id, start: track.start ?? 0, autoplay, mode: track.mode, retry: track.retry === true }).then(result => {
+      if (result?.error) {
+        this.switchTarget = null;
+        this.handlers.onError(result.error, { unchanged: result.unchanged });
+      }
+    });
   }
   play() { this.send({ type: 'play' }); }
   pause() { this.send({ type: 'pause' }); }

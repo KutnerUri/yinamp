@@ -42,7 +42,7 @@ export function musicContinuations(data) {
 }
 
 export async function requestMusicPage({ fetcher = fetch, clientVersion, action = 'search', signal, ...parameters }) {
-  if (!['search', 'browse'].includes(action)) throw new Error('Unknown music request.');
+  if (!['search', 'browse', 'next'].includes(action)) throw new Error('Unknown music request.');
   const response = await fetcher(`${origin}/youtubei/v1/${action}?prettyPrint=false`, {
     method: 'POST', credentials: 'include', signal: signal ?? AbortSignal.timeout(10000),
     headers: { 'Content-Type': 'application/json', Origin: origin, 'User-Agent': agent },

@@ -8,7 +8,7 @@ import { createAppServer } from '../server.mjs';
 import { SPECTRUM_INTERVAL_MS } from '../src/spectrum-config.js';
 import { initialState } from '../src/core.js';
 import { YOUTUBE_PARTITION, INTERFACE_PARTITION, accountURL, isAccountURL, watchURL, isYouTubeURL, isExternalURL, viewBounds, validateCommand } from './contracts.mjs';
-import { snapshotScript, commandScript, playerLayoutCSS } from './page-scripts.mjs';
+import { snapshotScript, commandScript, playerLayoutCSS, didProviderAdvance } from './page-scripts.mjs';
 import { installSpectrumScript, readSpectrumScript, spectrumVolumeCSS } from './audio-spectrum.mjs';
 import { accountSnapshot, accountState, accountStatusScript, isAccountStatusPage, navigationDetails } from './account.mjs';
 import { createMusicLibrary } from './library.mjs';
@@ -24,6 +24,7 @@ let poll, polling = false, requestedId = null, initializedVideo = false, loading
 let wantsPlay = false, volume = 75, muted = false, lastError = '', loadVersion = 0;
 let commandQueue = Promise.resolve();
 let pendingStop = false;
+let queueEnded = false;
 let accountWindow = null;
 let accountRequested = false;
 let suppressAccountRefresh = false;
@@ -95,7 +96,7 @@ function configureContents(contents, local = false) {
 }
 async function execute(command) {
   if (shuttingDown || !view?.webContents || view.webContents.isDestroyed() || !isYouTubeURL(view.webContents.getURL())) return { waiting: true };
-  return view.webContents.executeJavaScript(commandScript(command), command.type === 'play');
+  return view.webContents.executeJavaScript(commandScript(command), ['play', 'switch'].includes(command.type));
 }
 function queueCommand(command) {
   commandQueue = commandQueue.catch(() => {}).then(() => execute(command));
@@ -107,7 +108,21 @@ async function pollVideo() {
   const version = loadVersion;
   try {
     let data = await view.webContents.executeJavaScript(snapshotScript);
-    if (version !== loadVersion || data.id !== requestedId) return;
+    if (version === loadVersion && queueEnded) {
+      if ([1, 3].includes(data.state)) await execute({ type: 'pause' });
+      return;
+    }
+    if (version === loadVersion && didProviderAdvance(data, requestedId, initializedVideo, isYouTubeURL(view.webContents.getURL()))) {
+      // The provider can advance before the next poll. Yinamp owns the queue.
+      await execute({ type: 'pause' });
+      if (version !== loadVersion) return;
+      queueEnded = true; wantsPlay = false;
+      lastSnapshot = { ...lastSnapshot, id: requestedId, state: 0 };
+      send({ type: 'snapshot', data: lastSnapshot });
+      return;
+    }
+    if (version !== loadVersion) return;
+    if (data.id !== requestedId) return;
     if (data.error) {
       if (data.error !== lastError) { lastError = data.error; send({ type: 'error', message: data.error, code: 100 }); }
       return;
@@ -134,7 +149,7 @@ async function pollVideo() {
   finally { polling = false; }
 }
 async function pollSpectrum() {
-  if (shuttingDown || spectrumReading || loading || !initializedVideo || !win || win.isDestroyed() || !win.isVisible() || win.isMinimized() || !view?.webContents || view.webContents.isDestroyed()) return;
+  if (shuttingDown || spectrumReading || loading || queueEnded || !initializedVideo || !win || win.isDestroyed() || !win.isVisible() || win.isMinimized() || !view?.webContents || view.webContents.isDestroyed()) return;
   if (lastSnapshot.state === 2 || lastSnapshot.state === 0) return;
   spectrumReading = true;
   const version = loadVersion;
@@ -150,6 +165,7 @@ async function pollSpectrum() {
 async function loadVideo(command) {
   if (shuttingDown || !view?.webContents || view.webContents.isDestroyed()) return;
   requestedId = command.id;
+  queueEnded = false;
   spectrumActive = false;
   send({ type: 'spectrum', data: { active: false, bands: [] } });
   playerAccount = accountSnapshot({ status: command.id ? 'checking' : 'unknown' }); publishAccount();
@@ -165,6 +181,31 @@ async function loadVideo(command) {
   } catch (error) {
     if (version === loadVersion && error.code !== 'ERR_ABORTED') send({ type: 'error', message: 'YouTube could not open this page. Check your connection and retry.' });
   } finally { if (version === loadVersion) { loading = false; void pollVideo(); } }
+}
+
+async function switchVideo(command) {
+  if (loading) return { error: 'The player is still connecting. Click VID to retry.', unchanged: true };
+  const version = ++loadVersion;
+  loading = true;
+  wantsPlay = command.autoplay;
+  pendingStop = false;
+  try {
+    const result = await queueCommand(command);
+    if (version !== loadVersion) return { superseded: true };
+    if (!result?.switched) return { error: result?.error ?? 'This player could not switch recordings. Click VID to retry.', unchanged: true };
+    requestedId = command.id;
+    queueEnded = false;
+    initializedVideo = false;
+    lastError = '';
+    lastSnapshot = { current: command.start };
+    send({ type: 'snapshot', data: { id: command.id, current: command.start, duration: 0, volume, muted, state: 3 } });
+    return { switched: true };
+  } catch (error) {
+    if (version !== loadVersion) return { superseded: true };
+    return { error: error.message, unchanged: true };
+  } finally {
+    if (version === loadVersion) { loading = false; void pollVideo(); }
+  }
 }
 
 async function refreshAccountPlayback() {
@@ -310,6 +351,7 @@ async function start() {
   ipcMain.handle('yinamp:library', async (event, value) => {
     trusted(event);
     if (value?.action === 'browse') return library.browse(value.section, value.refresh === true);
+    if (value?.action === 'versions') return library.versions(value.id);
     if (value?.action === 'playlist') return library.playlist(value.playlist);
     throw new Error('Unsupported library request');
   });
@@ -334,6 +376,11 @@ async function start() {
     const command = validateCommand(value);
     if (command.type === 'initialize') return { ready: true };
     if (command.type === 'load') { void loadVideo(command); return { loading: true }; }
+    if (queueEnded && ['play', 'seek'].includes(command.type)) {
+      void loadVideo({ id: requestedId, start: command.type === 'seek' ? command.value : 0, autoplay: command.type === 'play' });
+      return { loading: true };
+    }
+    if (command.type === 'switch') return switchVideo(command);
     if (command.type === 'fullscreen') { win.setFullScreen(command.enabled === true); return { ok: true }; }
     if (command.type === 'volume') { volume = command.value; muted = command.muted === true; }
     if (command.type === 'play') wantsPlay = true;

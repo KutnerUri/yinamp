@@ -52,6 +52,28 @@ test('failed title lookups produce a recoverable error while the app still serve
     assert.equal((await fetch(base)).status, 200);
   });
 });
+test('version lookup validates IDs, caches provider results, and returns recoverable errors', async () => {
+  let calls = 0;
+  await withServer(async (_url, options) => {
+    calls++;
+    return options.method ? Response.json({}) : new Response('ytcfg.set({"INNERTUBE_CLIENT_VERSION":"1.test"});');
+  }, async base => {
+    assert.equal((await fetch(`${base}/api/track-versions?id=invalid`)).status, 400);
+    assert.equal(calls, 0);
+    for (let index = 0; index < 2; index++) {
+      const response = await fetch(`${base}/api/track-versions?id=9mWr4c_ig54`);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { versions: {} });
+    }
+    assert.equal(calls, 2);
+  });
+  await withServer(async () => { throw new Error('Offline'); }, async base => {
+    const response = await fetch(`${base}/api/track-versions?id=9mWr4c_ig54`);
+    assert.equal(response.status, 502);
+    assert.match((await response.json()).error, /Try again/);
+    assert.equal((await fetch(base)).status, 200);
+  });
+});
 test('playlist listing fallback validates its ID and fetches only the public YouTube listing', async () => {
   const requests = [];
   await withServer(async url => { requests.push(url); return { ok: true, text: async () => playlistPage([{ lockupViewModel: { contentId: 'c8fu7tkc2Iw', contentType: 'LOCKUP_CONTENT_TYPE_VIDEO', metadata: { lockupMetadataViewModel: { title: { content: 'First' } } } } }]) }; }, async base => {

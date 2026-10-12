@@ -1,3 +1,4 @@
+import { cleanVersions, playbackTrack, versionMode, recordingControl } from './track-versions.js';
 import { STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp } from './core.js';
 import { YouTubePlayer } from './youtube.js';
 import { setupVisualizer } from './visualizer.js';
@@ -26,9 +27,16 @@ let wantsPlayback = false;
 let noticeTimeout;
 let playlistImport;
 let playbackRequested = false;
+let playIntentPending = false;
 let skipTimer;
 let retryingId = null;
 let musicLibrary;
+let playingId = null;
+let versionRequest = 0;
+let versionChecking = false;
+const versionErrors = new Map();
+let switchTimer;
+let switchFallback = null;
 const currentTrack = () => state.playlist.find(track => track.id === ui.selectedId.value);
 
 function notify(message, error = false) {
@@ -60,11 +68,25 @@ const player = new Player({
     $('#video-placeholder').hidden = Boolean(currentTrack());
     if (!currentTrack()) $('#video-placeholder-note').textContent = 'Choose a playlist from your library or add a song.';
     ui.playback.value = currentTrack() ? 'READY' : 'EMPTY';
+    renderVersions();
+    queueMicrotask(() => { if (state.playbackMode) switchRecording(state.playbackMode, false); });
   },
   onState(code) {
     if (hasError) return;
+    if (switchFallback) {
+      if ([0, -1, 3].includes(code) || switchFallback.autoplay && [2, 5].includes(code) || !switchFallback.autoplay && code === 1) return;
+      if ([1, 2, 5].includes(code)) {
+        clearTimeout(switchTimer); switchFallback = null; renderVersions();
+        queueMicrotask(() => {
+          if (!versionErrors.has(currentTrack()?.id)) switchRecording(preferredMode(), false);
+        });
+      }
+    }
+    if (playIntentPending && [2, 5].includes(code)) { ui.playback.value = 'BUFFERING'; return; }
+    if (code === 1) playIntentPending = false;
     ui.playback.value = ({ '-1': 'READY', 0: 'ENDED', 1: 'PLAYING', 2: stopped ? 'STOPPED' : 'PAUSED', 3: 'BUFFERING', 5: 'READY' })[code] ?? 'READY';
     wantsPlayback = code === 1 || code === 3;
+
     if (code === 1) {
       playbackRequested = true;
       retryingId = null;
@@ -78,8 +100,27 @@ const player = new Player({
     }
     if (!currentTrack()) ui.playback.value = 'EMPTY';
     updateProgress();
+    renderVersions();
   },
-  onError(message, { code } = {}) {
+  onError(message, { code, unchanged } = {}) {
+    if (switchFallback && switchFallback.trackId === currentTrack()?.id) {
+      const fallback = switchFallback;
+      clearTimeout(switchTimer); switchFallback = null;
+      versionErrors.set(fallback.trackId, { kind: 'switch', mode: fallback.mode, message });
+      playingId = fallback.id;
+      playbackRequested = fallback.autoplay; wantsPlayback = fallback.autoplay; playIntentPending = fallback.autoplay;
+      if (!unchanged && !fallback.recovering) {
+        switchFallback = { ...fallback, recovering: true };
+        switchTimer = setTimeout(() => { switchFallback = null; renderVersions(); }, 15000);
+        player.switchRecording({ ...currentTrack(), id: fallback.id, start: fallback.start, mode: versionMode(currentTrack(), fallback.id) }, fallback.autoplay);
+      }
+      ui.playback.value = fallback.autoplay ? (unchanged ? 'PLAYING' : 'BUFFERING') : 'PAUSED';
+      $('#youtube-link').href = `https://www.youtube.com/watch?v=${playingId}`;
+      renderVersions();
+      notify('That recording could not play. Kept your preference and the matched versions.', true);
+      return;
+    }
+    playIntentPending = false;
     visualizer.update();
     const track = currentTrack();
     const continueQueue = playbackRequested;
@@ -88,6 +129,7 @@ const player = new Player({
     hasError = true;
     wantsPlayback = false;
     ui.playback.value = 'UNAVAILABLE';
+    renderVersions();
     $('#player-error-message').textContent = message;
     $('#player-error').hidden = false;
     $('#connection-light').innerHTML = '<span class="connection-dot"></span> UNAVAILABLE';
@@ -113,7 +155,9 @@ const player = new Player({
     } else { playbackRequested = false; }
   },
   onAutoplayBlocked() {
+    playIntentPending = false;
     ui.playback.value = 'PRESS PLAY';
+    renderVersions();
     wantsPlayback = false;
     playbackRequested = false;
     notify('Your browser paused autoplay. Press play in the video window to start.');
@@ -145,6 +189,92 @@ function updateTrack() {
   $('#seek').max = track?.duration || 100;
   $('#seek').disabled = true;
 }
+function preferredMode() {
+  return state.playbackMode ?? versionMode(currentTrack(), playingId) ?? 'song';
+}
+function renderVersions() {
+  const track = currentTrack();
+  const control = recordingControl(track, preferredMode(), {
+    checking: versionChecking, switching: Boolean(switchFallback),
+    runningVideo: versionMode(track, playingId) === 'video' && ui.playback.value === 'PLAYING' && !switchFallback,
+  });
+  const button = $('#version-video');
+  button.disabled = control.disabled;
+  button.setAttribute('aria-pressed', String(control.pressed));
+  button.setAttribute('aria-busy', String(control.busy));
+  const title = control.title;
+  button.setAttribute('aria-label', title);
+  button.title = title;
+  button.dataset.active = String(control.active);
+}
+function loadRecording(track, autoplay = false, start) {
+  clearTimeout(switchTimer); switchFallback = null;
+  const recording = playbackTrack(track, state.playbackMode, start);
+  playingId = recording?.id ?? null;
+  if (recording) recording.mode = versionMode(track, playingId) ?? undefined;
+  player.load(recording, autoplay);
+  renderVersions();
+  if (track) $('#youtube-link').href = `https://www.youtube.com/watch?v=${playingId}`;
+}
+function switchRecording(mode, remember = true) {
+  const track = currentTrack();
+  const target = track?.versions?.[mode];
+  if (remember) { state.playbackMode = mode; persist(); }
+  if (!track || switchFallback) { renderVersions(); return; }
+  if (!target || !player.ready || target.id === playingId) { renderVersions(); return; }
+  const autoplay = playbackRequested;
+  const retry = versionErrors.get(track.id)?.kind === 'switch';
+  const current = stopped ? 0 : player.progress().current;
+  const start = target.duration > 0 ? Math.min(current, Math.max(0, target.duration - 1)) : current;
+  clearTimeout(skipTimer); clearPlayerError();
+  versionErrors.delete(track.id);
+  switchFallback = { id: playingId, start: current, autoplay, trackId: track.id, mode };
+  playingId = target.id;
+  stopped = false; wantsPlayback = autoplay; playIntentPending = autoplay;
+  ui.playback.value = autoplay ? 'BUFFERING' : 'READY';
+  renderVersions();
+  $('#youtube-link').href = `https://www.youtube.com/watch?v=${playingId}`;
+  switchTimer = setTimeout(() => {
+    if (switchFallback?.trackId === track.id) player.handlers.onError('The recording switch timed out.');
+  }, 15000);
+  player.switchRecording({ ...track, id: target.id, start, mode, retry }, autoplay);
+}
+async function resolveVersions(force = false) {
+  const track = currentTrack();
+  const request = ++versionRequest;
+  versionChecking = false;
+  if (!track) { renderVersions(); return; }
+  if (!force && (track.versionsChecked || track.versions?.song && track.versions?.video)) {
+    renderVersions();
+    if (state.playbackMode && !versionErrors.has(track.id)) switchRecording(state.playbackMode, false);
+    return;
+  }
+  versionErrors.delete(track.id); versionChecking = true; renderVersions();
+  try {
+    const result = window.yinampDesktop
+      ? await window.yinampDesktop.library({ action: 'versions', id: track.id })
+      : await (async () => {
+        const response = await fetch(`/api/track-versions?id=${encodeURIComponent(track.id)}`);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error);
+        return result;
+      })();
+    if (request !== versionRequest || currentTrack() !== track) return;
+    track.versions = cleanVersions({ ...track.versions, ...result.versions });
+    track.versionsChecked = true;
+    state.playbackMode ??= versionMode(track, playingId) ?? 'song';
+    versionChecking = false; persist(); renderVersions();
+    switchRecording(state.playbackMode, false);
+  } catch (error) {
+    if (request !== versionRequest || currentTrack() !== track) return;
+    versionChecking = false; versionErrors.set(track.id, { kind: 'lookup', message: error.message }); renderVersions();
+  }
+}
+$('#version-video').onclick = () => {
+  switchRecording(preferredMode() === 'video' ? 'song' : 'video');
+  if (versionErrors.get(currentTrack()?.id)?.kind === 'lookup' && !versionChecking) void resolveVersions(true);
+};
+
 function renderPlaylist() {
   const list = $('#playlist');
   const focused = document.activeElement;
@@ -211,6 +341,7 @@ function selectTrack(id, autoplay = false) {
   stopped = false;
   wantsPlayback = autoplay;
   playbackRequested = autoplay;
+  playIntentPending = autoplay;
   if (retryingId) {
     const status = $(`#playlist [data-track-id="${retryingId}"] .track-availability`);
     if (status) status.textContent = 'UNAVAILABLE';
@@ -223,7 +354,8 @@ function selectTrack(id, autoplay = false) {
   });
   if (track.unavailable) renderPlaylist();
   persist();
-  player.load(track, autoplay);
+  loadRecording(track, autoplay);
+  void resolveVersions();
 }
 function moveTrack(id, direction) {
   const index = state.playlist.findIndex(t => t.id === id);
@@ -239,7 +371,7 @@ function removeTrack(id) {
   if (ui.selectedId.value === id) {
     const next = state.playlist[Math.min(index, state.playlist.length - 1)];
     if (next) selectTrack(next.id, wasPlaying);
-    else { clearTimeout(skipTimer); ui.selectedId.value = null; stopped = true; wantsPlayback = false; playbackRequested = false; ui.playback.value = 'EMPTY'; clearPlayerError(); player.load(null); updateTrack(); }
+    else { clearTimeout(skipTimer); ui.selectedId.value = null; stopped = true; wantsPlayback = false; playbackRequested = false; ui.playback.value = 'EMPTY'; clearPlayerError(); loadRecording(null); void resolveVersions(); updateTrack(); }
   }
   renderPlaylist(); persist();
   notify('Track removed.');
@@ -262,26 +394,35 @@ function retryUnavailable() {
   else notify('Unavailable tracks will be tried again as the playlist reaches them.');
 }
 function play() {
+  playIntentPending = true;
+  if (switchFallback) switchFallback.autoplay = true;
   if (!currentTrack()) return;
   if (hasError) { if (currentTrack().unavailable && player.ready) retryTrack(ui.selectedId.value); else retryPlayer(true); return; }
   stopped = false; wantsPlayback = true; playbackRequested = true;
   if (currentTrack().unavailable && player.ready) { retryTrack(ui.selectedId.value); return; }
   if (player.ready) player.play();
-  else { player.load(currentTrack(), true); notify('Connecting to YouTube…'); }
+  else { loadRecording(currentTrack(), true); notify('Connecting to YouTube…'); }
 }
-function pause() { playbackRequested = false; clearTimeout(skipTimer); wantsPlayback = false; if (!player.ready) player.load(currentTrack(), false); player.pause(); }
-function stop() { playbackRequested = false; clearTimeout(skipTimer); stopped = true; wantsPlayback = false; player.stop(); if (!player.ready) player.load(currentTrack(), false); ui.playback.value = currentTrack() ? 'STOPPED' : 'EMPTY'; $('#time').textContent = '00:00'; $('#seek').value = 0; }
+function pause() { playIntentPending = false; if (switchFallback) switchFallback.autoplay = false; playbackRequested = false; clearTimeout(skipTimer); wantsPlayback = false; if (!player.ready) loadRecording(currentTrack(), false); player.pause(); }
+function stop() { playIntentPending = false; if (switchFallback) switchFallback.autoplay = false; playbackRequested = false; clearTimeout(skipTimer); stopped = true; wantsPlayback = false; player.stop(); if (!player.ready) loadRecording(currentTrack(), false); ui.playback.value = currentTrack() ? 'STOPPED' : 'EMPTY'; $('#time').textContent = '00:00'; $('#seek').value = 0; }
 function setVolume(value) { batch(() => { ui.volume.value = clamp(value, 0, 100); ui.muted.value = false; }); player.volume(ui.volume.value, ui.muted.value); persist(); }
 function toggleMute() { ui.muted.value = !ui.muted.value; player.volume(ui.volume.value, ui.muted.value); persist(); }
 function togglePanel(key) { ui.visibility[key].value = !ui.visibility[key].value; persist(); }
-function retryPlayer(autoplay = true) { clearTimeout(skipTimer); playbackRequested = autoplay; stopped = false; clearPlayerError(); ui.playback.value = 'CONNECTING'; $('#connection-light').innerHTML = '<span class="connection-dot"></span> CONNECTING'; $('#connection-light').classList.remove('connected'); $('#video-placeholder').hidden = false; $('#video-placeholder-note').textContent = 'Reconnecting to YouTube…'; player.initialize(); player.load(currentTrack(), autoplay); }
+function retryPlayer(autoplay = true) { playIntentPending = autoplay; clearTimeout(skipTimer); playbackRequested = autoplay; stopped = false; clearPlayerError(); ui.playback.value = 'CONNECTING'; $('#connection-light').innerHTML = '<span class="connection-dot"></span> CONNECTING'; $('#connection-light').classList.remove('connected'); $('#video-placeholder').hidden = false; $('#video-placeholder-note').textContent = 'Reconnecting to YouTube…'; player.initialize(); loadRecording(currentTrack(), autoplay); }
 
 function updateProgress() {
   if (!player.ready || hasError || !currentTrack()) return;
   const progress = player.progress();
   const track = currentTrack();
-  if (progress.duration > 0 && Math.abs(track.duration - progress.duration) > 1) {
-    track.duration = Math.round(progress.duration); renderPlaylist(); persist();
+  const mode = versionMode(track, playingId);
+  if (progress.duration > 0) {
+    const duration = Math.round(progress.duration);
+    if (mode && Math.abs(track.versions[mode].duration - duration) > 1) {
+      track.versions[mode].duration = duration; persist();
+    }
+    if (playingId === track.id && Math.abs(track.duration - duration) > 1) {
+      track.duration = duration; renderPlaylist(); persist();
+    }
   }
   if (!seeking) {
     $('#time').textContent = formatTime(stopped ? 0 : progress.current);
@@ -419,6 +560,8 @@ async function openOnlinePlaylist(value, autoplay = false, options = {}) {
     const data = metadata.get(track.id);
     if (typeof data?.title === 'string') track.title = data.title.slice(0, 300);
     if (Number.isFinite(data?.duration)) track.duration = clamp(data.duration, 0, 604800);
+    const versions = cleanVersions(data?.versions);
+    if (Object.keys(versions).length) track.versions = versions;
   }
   stop(); state.playlist = result.added; ui.selectedId.value = result.added[0].id;
   renderPlaylist(); selectTrack(ui.selectedId.value, autoplay); persist();
@@ -498,7 +641,7 @@ $('#playlist-file').onchange = async event => {
     stop(); state.playlist = imported.playlist; ui.selectedId.value = imported.selectedId;
     renderPlaylist();
     if (currentTrack()) selectTrack(ui.selectedId.value);
-    else { player.load(null); ui.playback.value = 'EMPTY'; updateTrack(); renderPlaylist(); persist(); }
+    else { loadRecording(null); void resolveVersions(); ui.playback.value = 'EMPTY'; updateTrack(); renderPlaylist(); persist(); }
     notify(`Loaded ${state.playlist.length} tracks.`);
   } catch (error) { notify(error instanceof SyntaxError ? 'That file is not valid JSON.' : error.message, true); }
 };
@@ -512,8 +655,9 @@ document.addEventListener('keydown', event => {
 
 renderSkin(); renderPlaylist(); updateTrack();
 bindPlayerUI(ui, { onLayout: () => panels.refresh(), onInactive: () => visualizer.update() });
-player.load(currentTrack(), false);
+loadRecording(currentTrack(), false);
 player.initialize();
+void resolveVersions();
 setInterval(updateProgress, 350);
 if (!storageAvailable) notify('Browser storage is unavailable. Use SAVE to export your playlist.', true);
 window.addEventListener('pagehide', persistence.flush);
