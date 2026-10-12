@@ -1,0 +1,68 @@
+export class NativePlayer {
+  constructor(handlers) {
+    this.handlers = handlers;
+    this.bridge = window.yinampDesktop;
+    this.ready = false;
+    this.pending = null;
+    this.data = { current: 0, duration: 0, volume: 75, muted: false };
+    this.lastState = null;
+    this.unsubscribe = this.bridge.onPlayer(event => {
+      if (event.type === 'snapshot') {
+        this.data = event.data;
+        if (event.data.state !== this.lastState) { this.lastState = event.data.state; this.handlers.onState(event.data.state); }
+      } else if (event.type === 'error') this.handlers.onError(event.message, { code: event.code });
+      else if (event.type === 'autoplay-blocked') this.handlers.onAutoplayBlocked();
+      else if (event.type === 'fullscreen' && !event.enabled) document.body.classList.remove('native-video-fullscreen');
+    });
+    document.body.classList.add('native-desktop');
+    document.querySelector('.source-info span:last-child').textContent = 'DESKTOP';
+    this.trackLayout();
+  }
+  send(command) { return this.bridge.player(command).catch(error => this.handlers.onError(error.message)); }
+  async initialize() {
+    this.ready = false;
+    await this.send({ type: 'initialize' });
+    this.ready = true;
+    this.handlers.onReady();
+    if (this.pending) { const { track, autoplay } = this.pending; this.pending = null; this.load(track, autoplay); }
+  }
+  load(track, autoplay = false) {
+    if (!this.ready) { this.pending = { track, autoplay }; return; }
+    this.lastState = null;
+    this.data = { ...this.data, current: 0, duration: 0 };
+    this.send({ type: 'load', id: track?.id ?? null, start: track?.start ?? 0, autoplay });
+  }
+  play() { this.send({ type: 'play' }); }
+  pause() { this.send({ type: 'pause' }); }
+  stop() { this.send({ type: 'stop' }); }
+  seek(value) { this.send({ type: 'seek', value }); }
+  volume(value, muted) { this.send({ type: 'volume', value, muted }); }
+  progress() { return this.data; }
+  fullscreen() {
+    document.body.classList.toggle('native-video-fullscreen');
+    this.send({ type: 'fullscreen', enabled: document.body.classList.contains('native-video-fullscreen') });
+  }
+  trackLayout() {
+    let previousBounds = '';
+    const update = () => {
+      const panel = document.getElementById('video-viewport');
+      const rect = panel.getBoundingClientRect();
+      const covered = document.querySelector('dialog[open]') || document.querySelector('.player-window.dragging') || (!document.body.classList.contains('native-video-fullscreen') && [...document.querySelectorAll('[data-panel]')].some(window => {
+        if (window.dataset.panel === 'video' || window.hidden) return false;
+        const bounds = window.getBoundingClientRect();
+        return bounds.left < rect.right && bounds.right > rect.left && bounds.top < rect.bottom && bounds.bottom > rect.top;
+      }));
+      const bounds = { x: rect.left + 2, y: rect.top + 2, width: Math.max(0, rect.width - 4), height: Math.max(0, rect.height - 4), visible: !covered && rect.bottom > 0 && rect.top < innerHeight };
+      const key = JSON.stringify(bounds);
+      if (key !== previousBounds) { previousBounds = key; this.bridge.layout(bounds); }
+    };
+    this.layoutTimer = setInterval(update, 80);
+    this.layoutObserver = new MutationObserver(update);
+    this.layoutObserver.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'hidden', 'class'] });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && document.body.classList.contains('native-video-fullscreen')) this.fullscreen();
+    });
+    update();
+  }
+  destroy() { clearInterval(this.layoutTimer); this.layoutObserver?.disconnect(); this.unsubscribe?.(); }
+}

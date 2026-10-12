@@ -4,7 +4,7 @@ A compact, Winamp-inspired YouTube player: beveled controls, an LED display, dra
 
 ## Run
 
-Requires Node.js 22 or newer. No dependencies to install.
+Requires Node.js 22.12 or newer. The browser version does not require installed dependencies.
 
 ```sh
 npm run dev
@@ -13,6 +13,19 @@ npm run dev
 Open **http://127.0.0.1:5173** in your browser. Use `npm start` without the development watcher. If the port is occupied, run `PORT=5174 npm run dev`.
 
 Serve the app over HTTP; opening `index.html` directly does not work with ES modules or YouTube’s embed identity requirements. The server listens on your computer’s loopback interface only.
+
+## Desktop prototype
+
+```sh
+pnpm install
+npm run desktop
+```
+
+The Electron prototype reuses the player interface but loads normal YouTube **watch pages** in a native `WebContentsView`. The transport buttons control the page’s HTML media element. It starts its own local server, so you don’t need `npm run dev` alongside it. The Electron runtime downloads on first launch if it is not already installed.
+
+The browser and desktop versions have separate saved settings. Use **SAVE** in the browser and **LOAD** in the desktop app to transfer a playlist. Desktop settings are stored in `yinamp-state.json` inside Electron’s Yinamp user-data directory. Imported iframe-specific embedding failure marks are cleared so those videos can be tried with the desktop player.
+
+The native view follows the video panel when dragged and hides while dialogs are open or another window covers it; audio can continue. The fullscreen button expands the video panel; Escape returns to the normal view. The watch-page integration keeps native YouTube player controls and advertisement playback. It is a prototype, not a signed installer, and page layout changes can require updates. YouTube sign-in, consent, regional restrictions, and content availability still apply.
 
 ## Use
 
@@ -53,7 +66,7 @@ All colors must be six-digit hexadecimal colors. Skin tokens apply to all window
 
 ## YouTube behavior
 
-This first version runs as a browser app with an embedded YouTube player, not as a native desktop WebView. It uses the official [YouTube IFrame Player API](https://developers.google.com/youtube/iframe_api_reference). Internet access is required; some videos disallow embedding or require sign-in, and browsers can block autoplay. Errors appear beside the player with Retry and an Open on YouTube link. Video-owner restrictions are preserved.
+The browser version uses the official [YouTube IFrame Player API](https://developers.google.com/youtube/iframe_api_reference). The desktop prototype uses ordinary watch pages instead. Internet access is required; some videos disallow embedding or require sign-in, and browsers can block autoplay. Errors appear beside the player with Retry and an Open on YouTube link. The desktop version’s page bridge does not extract media URLs or replace YouTube’s playback system.
 
 YouTube does not expose its decoded audio to the app. EQ and balance are visibly disabled rather than pretending to process audio. The LED spectrum is a decorative animation; it is not an audio analyzer. YouTube’s native controls remain available. No YouTube API key is needed; the local server uses YouTube oEmbed for optional title lookup, and lookup failures do not block playback.
 
@@ -72,5 +85,7 @@ npm test
 - `src/panels.js`: window dragging, snapping, and saved positions.
 - `src/app.js`: UI bindings, playback state, playlist editing, import/export.
 - `server.mjs`: local static server and fixed-destination title lookup.
+- `electron/`: desktop shell, isolated UI bridge, public watch-page playback, and persisted settings.
+- `src/native-player.js`: desktop implementation of the player interface.
 
 Tests cover input validation, playlist merging and preview lifecycle, persistence recovery, repeat/shuffle behavior, static serving, and metadata failure handling. Browser checks verify the interface with a mocked player API as well as a real YouTube embed; real playback depends on video availability and the network.

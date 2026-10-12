@@ -1,13 +1,16 @@
 import { STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp } from './core.js';
 import { YouTubePlayer } from './youtube.js';
+import { NativePlayer } from './native-player.js';
 import { setupPanels } from './panels.js';
 import { readPlaylistWithFallback } from './playlist-import.js';
 
 const $ = selector => document.querySelector(selector);
 let stored;
 let storageAvailable = true;
-try { stored = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { storageAvailable = false; }
+try { stored = window.yinampDesktop ? await window.yinampDesktop.readState() : JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { storageAvailable = false; }
 const state = initialState(stored);
+function resetEmbedFailures(tracks) { if (window.yinampDesktop) for (const track of tracks) if ([101, 150].includes(track.unavailable?.code)) delete track.unavailable; }
+resetEmbedFailures(state.playlist);
 let playback = 'CONNECTING';
 let seeking = false;
 let stopped = false;
@@ -27,11 +30,15 @@ function notify(message, error = false) {
   noticeTimeout = setTimeout(() => { $('#notice').textContent = ''; }, 8000);
 }
 function persist() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  try {
+    if (window.yinampDesktop) window.yinampDesktop.saveState(state).catch(() => notify('Desktop settings could not be saved. Use SAVE to export a copy.', true));
+    else localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
   catch { if (storageAvailable) notify('Browser storage is full or unavailable. Export your playlist to keep a copy.', true); storageAvailable = false; }
 }
 
-const player = new YouTubePlayer({
+const Player = window.yinampDesktop ? NativePlayer : YouTubePlayer;
+const player = new Player({
   onReady() {
     player.volume(state.volume, state.muted);
     $('#connection-light').innerHTML = '<span class="connection-dot"></span> CONNECTED';
@@ -310,7 +317,7 @@ $('#open-skins').onclick = () => showDialog('skins-dialog'); $('#footer-skins').
 $('#open-help').onclick = () => showDialog('help-dialog');
 $('#reset-layout').onclick = () => { panels.reset(); notify('Windows arranged.'); };
 $('#compact-main').onclick = () => { const body = $('#main-body'); body.hidden = !body.hidden; $('#compact-main').setAttribute('aria-expanded', String(!body.hidden)); panels.refresh(); };
-$('#fullscreen').onclick = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await $('#video-viewport').requestFullscreen(); } catch { notify('Use the fullscreen button inside the YouTube video on this browser.'); } };
+$('#fullscreen').onclick = async () => { if (window.yinampDesktop) { player.fullscreen(); return; } try { if (document.fullscreenElement) await document.exitFullscreen(); else await $('#video-viewport').requestFullscreen(); } catch { notify('Use the fullscreen button inside the YouTube video on this browser.'); } };
 $('#play').onclick = play; $('#pause').onclick = pause; $('#stop').onclick = stop;
 $('#next').onclick = () => navigate(1); $('#previous').onclick = () => navigate(-1);
 $('#volume').oninput = event => setVolume(event.target.value);
@@ -449,6 +456,7 @@ $('#playlist-file').onchange = async event => {
     const data = JSON.parse(await file.text());
     if (data.version !== 1 || !Array.isArray(data.tracks) || data.tracks.length > 500 || data.tracks.some(track => !track || !/^[\w-]{11}$/.test(track.id))) throw new Error('Use a Yinamp playlist JSON file with up to 500 valid videos.');
     const imported = initialState({ playlist: data.tracks });
+    resetEmbedFailures(imported.playlist);
     stop(); state.playlist = imported.playlist; state.selectedId = imported.selectedId;
     if (currentTrack()) selectTrack(state.selectedId);
     else { player.load(null); playback = 'EMPTY'; updateTrack(); renderPlaylist(); updatePlayback(); persist(); }
