@@ -262,3 +262,10 @@ response captures, screenshots and inactive QA profiles. Retained experimental
 source, reusable QA scripts and sanitized findings; lab usage is documented in
 `experiments/music-sources/README.md`. Referenced ignored reports are regenerated
 on demand.
+
+### Mix grouping experiment — discarded
+
+- [x] Investigate actual provider metadata and prototype interaction alternatives.
+- [x] User explicitly requested reverting grouping entirely. Remove the grouping preview/server, grouping diagnostics, generated data and prototype QA script. Keep the original flat Mixes collection.
+- [x] Retain metadata findings and UI takeaways in `experiments/music-sources/MIX-GROUPING.md`; grouping is not queued for integration.
+- [x] Leave the audio-visualizer experiment untouched.

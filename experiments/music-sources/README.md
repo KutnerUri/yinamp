@@ -36,3 +36,7 @@ provider feeds and opaque parameters can change between runs.
 
 See [the recorded investigation](INVESTIGATION-2026-10-12.md) and
 [production validation](../../LIBRARY-VALIDATION.md) for observations and limits.
+
+The grouping experiment was discarded. Its metadata findings and UI takeaways
+are retained in [the experiment notes](MIX-GROUPING.md); grouping code and the
+preview server were removed. The main app retains the flat Mixes collection.
