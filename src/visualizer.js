@@ -7,7 +7,14 @@ export function setupVisualizer(element) {
   let target = bars.map(() => 0), shown = [...target];
   let frame = 0, previous = 0, lastSample = 0, active = false;
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  const paint = () => bars.forEach((bar, index) => { bar.style.transform = `scaleY(${(3 + shown[index] * 20) / 23})`; });
+  const lit = bars.map(() => -1);
+  const paint = () => bars.forEach((bar, index) => {
+    const blocks = Math.round(shown[index] * 8);
+    if (lit[index] === blocks) return;
+    lit[index] = blocks;
+    // Reveal whole 2 px LEDs on a 3 px pitch; never scale the pattern.
+    bar.style.clipPath = `inset(${blocks ? (8 - blocks) * 3 : 23}px 0 0)`;
+  });
   function draw(now) {
     frame = 0;
     if (document.hidden) return;
