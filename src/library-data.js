@@ -30,7 +30,13 @@ export function parseMusicLibrary(data, section = 'mine') {
     if (section === 'mixes' && !mix || section === 'discover' && mix) return;
     seen.add(id);
     const thumbnails = value.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails ?? value.thumbnail?.thumbnails ?? [];
-    items.push({ id, title: title.slice(0, 200), subtitle: subtitle.slice(0, 200), thumbnail: photo(thumbnails.at(-1)?.url), kind: mix ? 'mix' : 'playlist', source: 'music', seed: endpoint.watchEndpoint?.videoId ?? play.watchEndpoint?.videoId ?? null });
+    const bylineRuns = [...(value.subtitle?.runs ?? []), ...(value.flexColumns?.slice(1).flatMap(column => column.musicResponsiveListItemFlexColumnRenderer?.text?.runs ?? []) ?? [])];
+    const owners = new Set(bylineRuns.map(run => {
+      const owner = run.navigationEndpoint?.browseEndpoint;
+      return owner?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType === 'MUSIC_PAGE_TYPE_USER_CHANNEL' && /^UC[\w-]{22}$/.test(owner.browseId ?? '') ? owner.browseId : null;
+    }).filter(Boolean));
+    const ownerId = owners.size === 1 ? [...owners][0] : null;
+    items.push({ id, ownerId, title: title.slice(0, 200), subtitle: subtitle.slice(0, 200), thumbnail: photo(thumbnails.at(-1)?.url), kind: mix ? 'mix' : 'playlist', source: 'music', seed: endpoint.watchEndpoint?.videoId ?? play.watchEndpoint?.videoId ?? null });
   }
   function walk(value, context = '', depth = 0) {
     if (!value || typeof value !== 'object' || depth > 35 || ++nodes > 40000 || visited.has(value)) return;
@@ -51,6 +57,12 @@ export function parseMusicLibrary(data, section = 'mine') {
   }
   walk(data);
   return { items: items.slice(0, 1000), partial: more || nodes > 40000 || items.length > 1000 };
+}
+
+// Only exclude a verified creator ID. Unknown owners, other creators and
+// provider mixes without creator metadata remain in Discovery.
+export function withoutOwnedPlaylists(items, ownerId) {
+  return /^UC[\w-]{22}$/.test(ownerId ?? '') ? items.filter(item => item.ownerId !== ownerId) : items;
 }
 
 export function musicLibraryURL(section) {

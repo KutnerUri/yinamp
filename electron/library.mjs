@@ -1,8 +1,9 @@
 import { BrowserWindow, WebContentsView, session } from 'electron';
 import { YOUTUBE_PARTITION, isAccountURL, isYouTubeURL } from './contracts.mjs';
 import { accountSnapshot, accountStatusScript } from './account.mjs';
-import { parsePlaylistTracks, musicLibraryURL, playlistURL } from '../src/library-data.js';
+import { parsePlaylistTracks, musicLibraryURL, playlistURL, withoutOwnedPlaylists } from '../src/library-data.js';
 import { discoverMusicPlaylists } from '../music-query.mjs';
+import { currentMusicOwner } from './music-owner.mjs';
 import { collectMusicCatalog } from './music-catalog.mjs';
 import { PlaylistCache } from '../src/playlist-cache.js';
 
@@ -48,11 +49,17 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
       const timer = setTimeout(() => { if (!contents.isDestroyed()) contents.close(); }, 35000);
       try {
         if (['mine', 'mixes', 'home'].includes(key)) {
-          const result = await collectMusicCatalog(contents, key === 'home' ? 'discover' : key, () => version === generation);
+          let result = await collectMusicCatalog(contents, key === 'home' ? 'discover' : key, () => version === generation);
           if (!result.signedIn && key !== 'home') throw signInError();
-          const identity = accountSnapshot(await contents.executeJavaScript(accountStatusScript));
+          if (key === 'home' && result.signedIn) {
+            const viewerOwnerId = cache.get('owner:channel') ?? await currentMusicOwner(contents, () => version === generation);
+            if (version !== generation) throw new Error('The account changed. Refresh the library.');
+            if (viewerOwnerId) cache.set('owner:channel', viewerOwnerId);
+            result = { ...result, viewerOwnerId };
+          }
+          const identity = isYouTubeURL(contents.getURL()) ? accountSnapshot(await contents.executeJavaScript(accountStatusScript)) : null;
           if (version !== generation) throw new Error('The account changed. Refresh the library.');
-          if (identity.status !== 'unknown') onIdentity(identity);
+          if (identity && identity.status !== 'unknown') onIdentity(identity);
           if (version !== generation) throw new Error('The account changed. Refresh the library.');
           cache.set(key, result);
           return result;
@@ -82,9 +89,9 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
         if (version !== generation) throw new Error('The account changed. Refresh the library.');
         const result = { ...last, [last.tracks ? 'tracks' : 'items']: [...collected.values()], partial };
         if (key === 'mine' || key === 'home') {
-          const identity = accountSnapshot(await contents.executeJavaScript(accountStatusScript));
+          const identity = isYouTubeURL(contents.getURL()) ? accountSnapshot(await contents.executeJavaScript(accountStatusScript)) : null;
           if (version !== generation) throw new Error('The account changed. Refresh the library.');
-          if (identity.status !== 'unknown') onIdentity(identity);
+          if (identity && identity.status !== 'unknown') onIdentity(identity);
         }
         if (version !== generation) throw new Error('The account changed. Refresh the library.');
         if (!last.tracks || result.tracks.length) cache.set(key, result);
@@ -118,9 +125,10 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
         cache.set(`catalog:${section}`, data); return data;
       }
       // Membership comes from the requested collection, not translated shelf titles.
-      // Discovery keeps all playlist cards in Home, including mixes. Further source
-      // filters can be added after the user reviews this broader feed.
-      const data = { items: result.items, partial: result.partial };
+      // Discovery compares a card's creator with the current public channel ID.
+      // No Library/Mixes listing or display-name matching is needed.
+      const items = section === 'discover' ? withoutOwnedPlaylists(result.items, result.viewerOwnerId) : result.items;
+      const data = { items, partial: result.partial, ...(section === 'discover' ? { excludedOwn: result.items.length - items.length, ownerFilterUnavailable: !result.viewerOwnerId } : {}) };
       if (version !== generation) throw new Error('The account changed. Refresh the library.');
       cache.set(`catalog:${section}`, data); return data;
     },

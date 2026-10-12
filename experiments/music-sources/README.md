@@ -10,6 +10,7 @@ Run from the repository root:
 ```sh
 npm run prototype -- --auto                  # Bounded source investigation
 npm run prototype                           # Interactive source lab
+npm run prototype -- --auto --owners         # Inspect creator metadata / public channel identity
 npm run prototype -- --auto --queries        # Also exercise client search categories
 npm run prototype -- --auto --validate-production # Validate the production adapter
 ```
@@ -40,3 +41,6 @@ See [the recorded investigation](INVESTIGATION-2026-10-12.md) and
 The grouping experiment was discarded. Its metadata findings and UI takeaways
 are retained in [the experiment notes](MIX-GROUPING.md); grouping code and the
 preview server were removed. The main app retains the flat Mixes collection.
+
+See [owner filtering evidence](OWNER-FILTER.md) for the creator metadata and
+public channel identity checks. Account diagnostic bodies remain excluded.

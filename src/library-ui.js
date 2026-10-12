@@ -54,7 +54,7 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
       }
       if (version !== request) return;
       visibleData = data;
-      message(data.partial ? 'Showing the available portion of this collection. Refresh to retry loading more.' : 'Choose a playlist to replace the queue and start listening.');
+      message(data.ownerFilterUnavailable ? 'Your channel identity could not be verified, so owner filtering was not applied. Refresh to retry.' : data.partial ? 'Showing the available portion of this collection. Refresh to retry loading more.' : 'Choose a playlist to replace the queue and start listening.');
     } catch (error) {
       if (version !== request) return;
       const text = cleanError(error); message(text, true); $('#library-sign-in').hidden = !desktop || !/sign in/i.test(text);

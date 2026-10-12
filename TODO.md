@@ -269,3 +269,19 @@ on demand.
 - [x] User explicitly requested reverting grouping entirely. Remove the grouping preview/server, grouping diagnostics, generated data and prototype QA script. Keep the original flat Mixes collection.
 - [x] Retain metadata findings and UI takeaways in `experiments/music-sources/MIX-GROUPING.md`; grouping is not queued for integration.
 - [x] Leave the audio-visualizer experiment untouched.
+
+### Discovery creator filter — implemented
+
+- [x] User requested filtering by owner instead of comparing Library/Mixes listings.
+- [x] Preserve explicitly typed public creator channel IDs from playlist bylines. Resolve the current public channel ID from the visible YouTube advanced-settings field; cache it for 30 minutes and invalidate on Refresh/account changes.
+- [x] Exclude only exact owner matches in Discovery. Keep saved playlists from other creators and entries without explicit owner metadata. Unknown/ambiguous owner identity retains cards and reports that filtering was not applied.
+- [x] Preserve known network-response ownership when rendered snapshots omit it. Never inspect Google auth pages or full account contexts.
+- [x] Actual account: 54 Home playlist cards minus 12 matching creators = 42 Discovery cards; 6.7 s cold, immediate cached repeat. My Playlists remains 23 and Mixes 49; all mix artwork still loads.
+- [x] Pass 58 regression tests and controlled desktop checks for exact owner exclusion, retained other-owner saved playlists, cache/account invalidation, preserved playback and failed-import queue protection.
+- [ ] User review after restarting the desktop backend.
+
+A suggested additional title heuristic (“my” in mix names) is pending confirmation
+of the exact words/languages. It is not applied yet; personalized mixes generally
+lack a creator ID and remain visible under the owner-only rule.
+
+- Mix metadata inspection (2026-10-12): live localized collection had 48 mix cards, no English “my” title; only My Supermix had Hebrew “שלי”. Specific “My Mix 6” artwork not reproduced. Existing Discovery parser already excludes recognized mixes; no title heuristic added. See experiments/music-sources/OWNER-FILTER.md.

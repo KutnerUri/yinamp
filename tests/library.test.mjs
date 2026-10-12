@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMusicLibrary, parsePlaylistTracks, musicLibraryURL, playlistURL } from '../src/library-data.js';
+import { parseMusicLibrary, parsePlaylistTracks, musicLibraryURL, playlistURL, withoutOwnedPlaylists } from '../src/library-data.js';
 import { parseMusicLibraryHTML, parseMusicPlaylistHTML } from '../music-library.mjs';
 import { createAppServer } from '../server.mjs';
 import { once } from 'node:events';
@@ -98,4 +98,28 @@ test('playlist cache lasts 30 minutes, expires at the boundary, and clears accou
   time=PLAYLIST_CACHE_MS;assert.equal(cache.get('private-playlist'),undefined);
   cache.set('mine',data);cache.set('home',data);cache.set('playlist',data);assert.equal(cache.get('mine'),undefined);
   cache.clear();assert.equal(cache.get('playlist'),undefined);assert.equal(cache.get('home'),undefined);
+});
+
+test('Discovery excludes only verified creator IDs, not names, artists, or saved membership', () => {
+  const own = 'UC' + 'a'.repeat(22), other = 'UC' + 'b'.repeat(22);
+  const owned = card('PL_owned', 'Created by me');
+  const saved = card('PL_saved', 'Saved from another creator');
+  const unknown = card('RDTMAK_personal', 'Personalized mix');
+  const byline = id => ({text:'Same display name',navigationEndpoint:{browseEndpoint:{browseId:id,browseEndpointContextSupportedConfigs:{browseEndpointContextMusicConfig:{pageType:'MUSIC_PAGE_TYPE_USER_CHANNEL'}}}}});
+  owned.musicTwoRowItemRenderer.subtitle.runs = [byline(own)];
+  saved.musicTwoRowItemRenderer.subtitle.runs = [byline(other)];
+  const items = parseMusicLibrary({contents:[owned,saved,unknown]}).items;
+  assert.equal(items[0].ownerId,own);
+  assert.deepEqual(withoutOwnedPlaylists(items,own).map(i=>i.id),['PL_saved','RDTMAK_personal']);
+  assert.equal(withoutOwnedPlaylists(items,null),items);
+  assert.equal(withoutOwnedPlaylists(items,'Same display name'),items);
+  const artist = card('RDTMAK_artist', 'Artist mix');
+  artist.musicTwoRowItemRenderer.subtitle.runs = [byline(own)];
+  artist.musicTwoRowItemRenderer.subtitle.runs[0].navigationEndpoint.browseEndpoint.browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType='MUSIC_PAGE_TYPE_ARTIST';
+  assert.equal(parseMusicLibrary(artist).items[0].ownerId,null);
+  const ambiguous = card('PL_ambiguous','Multiple credits');
+  ambiguous.musicTwoRowItemRenderer.subtitle.runs = [byline(own),byline(other)];
+  assert.equal(parseMusicLibrary(ambiguous).items[0].ownerId,null);
+  const injected=(0,eval)(`(${parseMusicLibrary.toString()})`);
+  assert.deepEqual(injected({contents:[owned,saved]}),parseMusicLibrary({contents:[owned,saved]}));
 });

@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, resolve } from 'node:path';
+import { analyzeOwners } from './owner-probe.mjs';
 import { analyzeMusicData, requestSummary, decodeRequestPayload } from './analyze.mjs';
 import { parseMusicLibrary } from '../../src/library-data.js';
 import { isAccountURL } from '../../electron/contracts.mjs';
@@ -53,6 +54,7 @@ function observe(contents) {
           const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString() : result.body;
           const value = JSON.parse(body.replace(/^\)\]\}'\s*/, ''));
           record.catalog = analyzeMusicData(value);
+          if (process.argv.includes('--owners')) record.owners = analyzeOwners(value);
           record.productionParser = { playlists: parseMusicLibrary(value).items.length, mixes: parseMusicLibrary(value, 'mixes').items.length };
         } catch { record.responseUnavailable = true; }
       }
@@ -132,6 +134,55 @@ async function openSource(index) {
 }
 
 async function run() {
+  if (process.argv.includes('--mix-metadata')) {
+    stage = 'mix-metadata'; pageStarted = Date.now();
+    const url = new URL('https://music.youtube.com/browse/FEmusic_mixed_for_you');
+    url.searchParams.set('params', 'ggMEgAKCBA%3D%3D');
+    await music.loadURL(url.href); await ready(); await sleep(2000);
+    for (let step = 0; step < 3; step++) {
+      await music.webContents.executeJavaScript(`(()=>{const n=document.querySelector('ytmusic-app #content');if(n)n.scrollTop=n.scrollHeight;})()`); await sleep(600);
+    }
+    const dom = await music.webContents.executeJavaScript(`(${readDOM.toString()})()`);
+    const items = parseMusicLibrary(dom.roots, 'mixes').items;
+    report.mixMetadata = items.map(({id,title,subtitle,kind})=>({id,title,subtitle,kind}));
+    await snapshot();
+    await navigate('home');
+    for (let step = 0; step < 6; step++) {
+      await music.webContents.executeJavaScript(`(()=>{const n=document.querySelector('ytmusic-app #content');if(n)n.scrollTop=n.scrollHeight;})()`); await sleep(700);
+    }
+    const home = await music.webContents.executeJavaScript(`(${readDOM.toString()})()`);
+    report.homeMixMetadata = parseMusicLibrary(home.roots, 'mine').items.filter(item=>item.kind==='mix').map(({id,title,subtitle,kind})=>({id,title,subtitle,kind}));
+    await snapshot(); await save();
+    console.log(JSON.stringify({kind:'mix-metadata',count:items.length,cards:report.mixMetadata})); return;
+  }
+  if (process.argv.includes('--owners')) {
+    const pages = [];
+    for (const route of ['home', 'library']) {
+      await navigate(route);
+      for (let step = 0; step < (route === 'home' ? 6 : 1); step++) {
+        await music.webContents.executeJavaScript(`(()=>{const n=document.querySelector('ytmusic-app #content');if(n)n.scrollTop=n.scrollHeight;})()`);await sleep(700);
+      }
+      const roots = await music.webContents.executeJavaScript(`(${readDOM.toString()})().roots`);
+      pages.push({route,cards:analyzeOwners(roots)});
+    }
+    const identityScript = `(()=>{
+      const publicID=value=>typeof value==='string'&&/^UC[\\w-]{22}$/.test(value)?value:null;
+      const configIDs=['CHANNEL_ID','USER_CHANNEL_ID'].map(key=>({key,id:publicID(globalThis.ytcfg?.get?.(key))})).filter(x=>x.id);
+      const visibleLinks=[...document.querySelectorAll('a[href]')].filter(n=>n.getClientRects().length).map(n=>{try{const path=new URL(n.href,location.origin).pathname;return /^\\/channel\\/UC[\\w-]{22}$/.test(path)?path:null;}catch{return null;}}).filter(Boolean);
+      const menus=[...document.querySelectorAll('ytmusic-multi-page-menu-renderer,yt-multi-page-menu-renderer,ytmusic-menu-popup-renderer,yt-active-account-header-renderer')].filter(n=>n.getClientRects().length).map(n=>({tag:n.localName,keys:Object.keys(n.data??n.__data?.data??{})}));
+      return {configIDs,visibleLinks,menus};
+    })()`;
+    const before = await music.webContents.executeJavaScript(identityScript);
+    const clicked = await music.webContents.executeJavaScript(`(()=>{const n=document.querySelector('ytmusic-nav-bar #avatar-btn,ytmusic-nav-bar #avatar');if(n){n.click();return true;}return false;})()`,true);
+    await sleep(800);
+    const after = await music.webContents.executeJavaScript(identityScript);
+    const navShape = await music.webContents.executeJavaScript(`(()=>[...document.querySelectorAll('ytmusic-nav-bar button,ytmusic-nav-bar ytmusic-settings-button,ytmusic-nav-bar tp-yt-paper-icon-button')].filter(n=>n.getClientRects().length).map(n=>({tag:n.localName,id:n.id,hasImage:Boolean(n.querySelector('img')),dataKeys:Object.keys(n.data??n.__data?.data??{})})))()`);
+    stage = 'public-channel-identity';
+    await music.loadURL('https://www.youtube.com/account_advanced');await sleep(1500);
+    const advanced = music.webContents.getURL().startsWith('https://www.youtube.com/account_advanced') ? await music.webContents.executeJavaScript(`(()=>{const valid=x=>typeof x==='string'&&/^UC[\\w-]{22}$/.test(x.trim());return {channelIDs:[...new Set([...document.querySelectorAll('input,textarea')].map(n=>n.value).filter(valid).map(x=>x.trim()))],channelLinks:[...new Set([...document.querySelectorAll('a[href]')].filter(n=>n.getClientRects().length).map(n=>{try{const p=new URL(n.href,location.origin).pathname;return /^\\/channel\\/UC[\\w-]{22}$/.test(p)?p:null;}catch{return null;}}).filter(Boolean))]};})()`) : {unavailable:true};
+    report.ownerProbe = {pages,before,after,avatarOpened:clicked,navShape,advanced};
+    await save();console.log(JSON.stringify({kind:'owner-probe',counts:pages.map(p=>({route:p.route,cards:p.cards.length,withByline:p.cards.filter(c=>c.byline.length).length})),before,after,navShape,advanced}));return;
+  }
   let home = await navigate('home');
   console.log(JSON.stringify({ stage: 'home', signedIn: home.signedIn, rawCards: home.catalog?.count, withArtwork: home.catalog?.withArtwork, productionMixes: home.productionParser?.mixes, shelves: home.catalog?.shelves.map(shelf => ({ title: shelf.title, cards: shelf.cards, browseId: shelf.browseId, endpointKeys: shelf.endpointKeys })), actions: home.actions?.map(action => ({ title: action.title, hasButton: action.hasButton })) }));
   if (!home.signedIn) { report.sessionUnavailable = true; await save(); return; }
@@ -205,7 +256,7 @@ if (process.argv.includes('--validate-production')) {
       validation.sections.push({ section, durationMs: cachedAt - began, count: value.items.length,
         unique: new Set(value.items.map(i => i.id)).size, withArtwork: value.items.filter(i => i.thumbnail).length,
         mixArtwork: value.items.filter(i => { try { return new URL(i.thumbnail).pathname === '/image/mixart'; } catch { return false; } }).length,
-        partial: value.partial, cacheMs: Date.now() - cachedAt, cacheSame: cached === value,
+        partial: value.partial, excludedOwn: value.excludedOwn, ownerFilterUnavailable: value.ownerFilterUnavailable, withOwner: value.items.filter(i=>i.ownerId).length, cacheMs: Date.now() - cachedAt, cacheSame: cached === value,
         kinds: [...new Set(value.items.map(i => i.kind))] });
       if (section === 'mixes') {
         const preview = new BrowserWindow({ show: false, width: 1100, height: 850,

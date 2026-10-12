@@ -26,7 +26,13 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 export async function collectMusicCatalog(contents, section, isCurrent = () => true) {
   const items = new Map(), pending = new Set(), reads = new Set();
   let latestHasMore, responseFailed = false, revision = 0;
-  const add = values => { for (const item of values) if (items.has(item.id) || items.size < 1000) items.set(item.id, item); };
+  const add = values => {
+    for (const item of values) if (items.has(item.id) || items.size < 1000) {
+      const previous = items.get(item.id);
+      // Rendered cards can omit metadata already present in a browse response.
+      items.set(item.id, { ...item, ownerId: item.ownerId ?? previous?.ownerId ?? null });
+    }
+  };
   const assertCurrent = () => { if (!isCurrent()) throw new Error('The account changed. Refresh the library.'); };
   const observe = (_event, method, event) => {
     if (method === 'Network.requestWillBeSent') {
