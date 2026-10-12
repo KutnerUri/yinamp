@@ -22,7 +22,7 @@ export function readPage() {
   const cued = player?.getPlayerState?.() === 5;
   const error = document.querySelector('.ytp-error-content-wrap-reason')?.textContent?.trim() ?? '';
   return {
-    id, endedId, hasVideo: Boolean(video), error,
+    id, endedId, hasVideo: Boolean(video), error, equalizerAvailable: Boolean(globalThis.__yinampAudio),
     current: isAd ? 0 : cued ? player.getCurrentTime() || 0 : video?.currentTime || 0,
     duration: isAd || !Number.isFinite(video?.duration) ? 0 : video.duration,
     volume: globalThis.__yinampAudio?.volume ?? (typeof player?.getVolume === 'function' ? player.getVolume() : video ? video.volume * 100 : 75),
@@ -43,6 +43,7 @@ export function controlPage(command) {
     return { switched: true };
   }
   if (!video) return { waiting: true };
+  if (command.type === 'equalizer') { globalThis.__yinampAudio?.setEqualizer(command.settings); return { ok: true }; }
   if (command.type === 'play') {
     void globalThis.__yinampAudio?.context.resume().catch(() => {});
     if (player?.getPlayerState?.() === 5 && typeof player?.playVideo === 'function') { player.playVideo(); return { ok: true }; }

@@ -1,7 +1,7 @@
 // Installed once per watch-page navigation. The page keeps the audio graph;
 // subsequent 20 Hz reads execute only the small sample call below.
 export async function installAudioSpectrum(settings) {
-  if (window.__yinampAudio) { window.__yinampAudio.setVolume(settings.volume, settings.muted); return true; }
+  if (window.__yinampAudio) { window.__yinampAudio.setVolume(settings.volume, settings.muted); window.__yinampAudio.setEqualizer(settings.equalizer); return true; }
   const video = document.querySelector('video.html5-main-video') ?? document.querySelector('video');
   if (!video) return false;
   const context = new AudioContext();
@@ -12,6 +12,14 @@ export async function installAudioSpectrum(settings) {
   analyser.maxDecibels = -20;
   const gain = context.createGain();
   gain.gain.value = settings.muted ? 0 : settings.volume / 100;
+  const preamp = context.createGain();
+  const filters = [60, 170, 310, 600, 1000, 3000, 6000, 12000, 16000].map(frequency => {
+    const filter = context.createBiquadFilter();
+    filter.type = 'peaking'; filter.frequency.value = Math.min(frequency, context.sampleRate * .49); filter.Q.value = 1;
+    return filter;
+  });
+  preamp.connect(filters[0]);
+  filters.forEach((filter, index) => filter.connect(filters[index + 1] ?? analyser));
   analyser.connect(gain); gain.connect(context.destination);
   const frequency = new Uint8Array(analyser.frequencyBinCount);
   const ranges = Array.from({ length: 20 }, (_, index) => {
@@ -22,15 +30,23 @@ export async function installAudioSpectrum(settings) {
   const sources = new WeakMap();
   let currentVideo, currentSource;
   const graph = {
-    context, analyser, gain, volume: settings.volume, muted: settings.muted,
+    context, analyser, gain, preamp, filters, volume: settings.volume, muted: settings.muted,
     setVolume(volume, muted) {
       this.volume = volume; this.muted = muted;
       gain.gain.setTargetAtTime(muted ? 0 : volume / 100, context.currentTime, 0.015);
     },
+    setEqualizer(eq = { enabled: true, preamp: 0, bands: [] }) {
+      const bands = filters.map((_, index) => eq.enabled ? eq.bands[index] ?? 0 : 0);
+      const requested = eq.enabled ? eq.preamp : 0;
+      const time = context.currentTime;
+      // Smooth gain changes to avoid clicks when dragging the sliders.
+      preamp.gain.setTargetAtTime(10 ** (requested / 20), time, .015);
+      filters.forEach((filter, index) => filter.gain.setTargetAtTime(bands[index], time, .015));
+    },
     attach(video) {
       if (video !== currentVideo) {
         const source = sources.get(video) ?? context.createMediaElementSource(video);
-        currentSource?.disconnect(); source.connect(analyser); sources.set(video, source);
+        currentSource?.disconnect(); source.connect(preamp); sources.set(video, source);
         currentSource = source; currentVideo = video;
       }
       const player = document.querySelector('#movie_player');
@@ -55,6 +71,7 @@ export async function installAudioSpectrum(settings) {
     },
   };
   try {
+    graph.setEqualizer(settings.equalizer);
     graph.attach(video);
     window.__yinampAudio = graph;
     await context.resume();

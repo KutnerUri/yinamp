@@ -30,7 +30,7 @@ export function viewBounds(value, viewport) {
   return { x, y, width: Math.max(0, Math.min(viewport.width - x, Math.round(value.width))), height: Math.max(0, Math.min(viewport.height - y, Math.round(value.height))) };
 }
 export function validateCommand(command) {
-  if (!command || !['initialize', 'load', 'switch', 'play', 'pause', 'stop', 'seek', 'volume', 'fullscreen'].includes(command.type)) throw new Error('Unsupported player command');
+  if (!command || !['initialize', 'load', 'switch', 'play', 'pause', 'stop', 'seek', 'volume', 'equalizer', 'fullscreen'].includes(command.type)) throw new Error('Unsupported player command');
   if (command.type === 'load' && command.id !== null) watchURL(command.id, command.start);
   if (command.type === 'switch') {
     watchURL(command.id, command.start);
@@ -38,5 +38,9 @@ export function validateCommand(command) {
     if (command.mode !== undefined && !['song', 'video'].includes(command.mode)) throw new Error('Invalid recording mode');
   }
   if (['seek', 'volume'].includes(command.type) && (!Number.isFinite(command.value) || command.value < 0 || command.value > (command.type === 'volume' ? 100 : 604800))) throw new Error('Invalid player value');
+  if (command.type === 'equalizer') {
+    const eq = command.settings;
+    if (!eq || typeof eq.enabled !== 'boolean' || !Array.isArray(eq.bands) || eq.bands.length !== 9 || ![eq.preamp, ...eq.bands].every(value => Number.isFinite(value) && value >= -12 && value <= 12)) throw new Error('Invalid equalizer settings');
+  }
   return command;
 }

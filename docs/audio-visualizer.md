@@ -4,7 +4,7 @@ The desktop player replaces simulated bars with 20 logarithmic frequency bands f
 
 ## Audio and timing
 
-The graph is media source → analyser → listening gain → output. The source stays at full volume and unmuted; the listening gain handles volume and mute after analysis. No volume compensation is applied to spectrum values. The native video volume control is hidden when the graph is available; Yinamp’s slider and mute button control output.
+The graph is media source → EQ preamp → nine filters → analyser → listening gain → output. See `docs/equalizer.md` for EQ behavior and validation. The source stays at full volume and unmuted; the listening gain handles volume and mute after analysis. No volume compensation is applied to spectrum values. The native video volume control is hidden when the graph is available; Yinamp’s slider and mute button control output.
 
 Sampling and rendering share a 20 Hz budget in `src/spectrum-config.js`. Desktop sampling uses a fixed 50 ms interval with an in-flight guard. Rendering uses requestAnimationFrame with an elapsed-time cap and remainder carry, without catch-up bursts. Bar transforms avoid height layout changes. Rendering settles and stops when inactive; sampling stops for paused playback or a minimized/hidden window. Each watch-page navigation installs its own graph, and replaced video elements reconnect to that graph.
 

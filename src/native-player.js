@@ -11,6 +11,7 @@ export class NativePlayer {
         if (this.switchTarget && (event.data.id !== this.switchTarget || event.data.state === 0)) return;
         if (this.switchTarget && [1, 2, 5].includes(event.data.state)) this.switchTarget = null;
         this.data = event.data;
+        this.handlers.onEqualizerAvailability?.(event.data.equalizerAvailable === true);
         if ([0, 2].includes(event.data.state)) this.handlers.onSpectrum?.({ active: false, bands: [] });
         if (event.data.state !== this.lastState) { this.lastState = event.data.state; this.handlers.onState(event.data.state); }
       } else if (event.type === 'spectrum') this.handlers.onSpectrum?.(event.data);
@@ -51,6 +52,7 @@ export class NativePlayer {
   stop() { this.send({ type: 'stop' }); }
   seek(value) { this.send({ type: 'seek', value }); }
   volume(value, muted) { this.send({ type: 'volume', value, muted }); }
+  equalizer(settings) { return this.send({ type: 'equalizer', settings }); }
   progress() { return this.data; }
   fullscreen() {
     document.body.classList.toggle('native-video-fullscreen');

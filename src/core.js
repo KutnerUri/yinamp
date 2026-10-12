@@ -1,3 +1,4 @@
+import { normalizeEqualizer } from './equalizer.js';
 import { cleanVersions } from './track-versions.js';
 export const STORAGE_KEY = 'yinamp.v1';
 export const RETRY_AFTER_MS = 15 * 60 * 1000;
@@ -76,7 +77,7 @@ export function validateSkin(value) {
 }
 
 export function initialState(saved) {
-  const state = { version: 2, playlist: [], selectedId: null, volume: 75, muted: false, shuffle: false, repeat: 'off', skin: structuredClone(SKINS.classic), visibility: { eq: true, playlist: true }, layout: {} };
+  const state = { equalizer: normalizeEqualizer(saved?.equalizer), version: 2, playlist: [], selectedId: null, volume: 75, muted: false, shuffle: false, repeat: 'off', skin: structuredClone(SKINS.classic), visibility: { eq: true, playlist: true }, layout: {} };
   if (!saved || typeof saved !== 'object') return state;
   if (Array.isArray(saved.playlist)) {
     const seen = new Set();

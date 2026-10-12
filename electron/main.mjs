@@ -22,6 +22,7 @@ let writeQueue = Promise.resolve();
 let spectrumPoll, spectrumReading = false, spectrumActive = false;
 let poll, polling = false, requestedId = null, initializedVideo = false, loading = false;
 let wantsPlay = false, volume = 75, muted = false, lastError = '', loadVersion = 0;
+let equalizer = { enabled: true, preamp: 0, bands: Array(9).fill(0) };
 let commandQueue = Promise.resolve();
 let pendingStop = false;
 let queueEnded = false;
@@ -130,7 +131,7 @@ async function pollVideo() {
     if (!data.hasVideo) return;
     if (!initializedVideo && data.ready) {
       initializedVideo = true;
-      try { await view.webContents.executeJavaScript(installSpectrumScript({ volume, muted }), true); } catch { /* Keep ordinary playback if Web Audio is unavailable. */ }
+      try { await view.webContents.executeJavaScript(installSpectrumScript({ volume, muted, equalizer }), true); } catch { /* Keep ordinary playback if Web Audio is unavailable. */ }
       await view.webContents.insertCSS(playerLayoutCSS + (await view.webContents.executeJavaScript('Boolean(window.__yinampAudio)') ? spectrumVolumeCSS : ''));
       await execute({ type: 'volume', value: volume, muted });
       const result = await execute({ type: pendingStop ? 'stop' : wantsPlay ? 'play' : 'pause' });
@@ -382,6 +383,7 @@ async function start() {
     }
     if (command.type === 'switch') return switchVideo(command);
     if (command.type === 'fullscreen') { win.setFullScreen(command.enabled === true); return { ok: true }; }
+    if (command.type === 'equalizer') equalizer = structuredClone(command.settings);
     if (command.type === 'volume') { volume = command.value; muted = command.muted === true; }
     if (command.type === 'play') wantsPlay = true;
     if (['pause', 'stop'].includes(command.type)) wantsPlay = false;

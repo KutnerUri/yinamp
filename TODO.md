@@ -289,3 +289,8 @@ of the exact words/languages. It is not applied yet; personalized mixes generall
 lack a creator ID and remain visible under the owner-only rule.
 
 - Mix metadata inspection (2026-10-12): live localized collection had 48 mix cards, no English “my” title; only My Supermix had Hebrew “שלי”. Specific “My Mix 6” artwork not reproduced. Existing Discovery parser already excludes recognized mixes; no title heuristic added. See experiments/music-sources/OWNER-FILTER.md.
+
+### Audio follow-ups — 2026-10-12
+
+- [ ] Add a simulated browser visualizer fallback while YouTube is playing; settle on pause/stop and respect reduced-motion settings. Clearly identify it as decorative.
+- [x] Desktop equalizer: preamp, nine bands, bypass/reset, saved settings and manual preamp. Automatic compensation removed at the user’s request on 2026-10-13. All 87 tests pass; controlled PCM audio, two live YouTube tracks, reload persistence and a short CPU comparison passed. See `docs/equalizer.md`.

@@ -2,6 +2,7 @@ import { cleanVersions, playbackTrack, versionMode, recordingControl } from './t
 import { STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp } from './core.js';
 import { YouTubePlayer } from './youtube.js';
 import { setupVisualizer } from './visualizer.js';
+import { setupEqualizer } from './equalizer.js';
 import { NativePlayer } from './native-player.js';
 import { setupPanels } from './panels.js';
 import { readPlaylistWithFallback } from './playlist-import.js';
@@ -59,10 +60,13 @@ function saveState() {
 const visualizer = setupVisualizer($('#visualizer'));
 $('#visualizer').setAttribute('aria-label', window.yinampDesktop ? 'Live music spectrum' : 'Audio spectrum unavailable for embedded YouTube playback');
 const Player = window.yinampDesktop ? NativePlayer : YouTubePlayer;
+let equalizerControls;
 const player = new Player({
+  onEqualizerAvailability: available => equalizerControls?.setAvailable(available),
   onSpectrum: data => visualizer.update(data),
   onReady() {
     player.volume(ui.volume.value, ui.muted.value);
+    player.equalizer?.(state.equalizer);
     $('#connection-light').innerHTML = '<span class="connection-dot"></span> CONNECTED';
     $('#connection-light').classList.add('connected');
     $('#video-placeholder').hidden = Boolean(currentTrack());
@@ -163,6 +167,7 @@ const player = new Player({
     notify('Your browser paused autoplay. Press play in the video window to start.');
   },
 });
+equalizerControls = setupEqualizer({ state, player, persist });
 
 const panels = setupPanels(state, persist);
 
