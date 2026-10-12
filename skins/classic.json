@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "Classic",
+  "colors": {
+    "shell": "#30313f",
+    "edge": "#7c7e91",
+    "accent": "#a7ff48",
+    "screen": "#080e08",
+    "text": "#dddde7",
+    "button": "#aeb0bf",
+    "desktop": "#14151e"
+  }
+}

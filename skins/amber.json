@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "Amber",
+  "colors": {
+    "shell": "#3d332d",
+    "edge": "#9b8773",
+    "accent": "#ffd16d",
+    "screen": "#160e06",
+    "text": "#f0e1ce",
+    "button": "#c2a78c",
+    "desktop": "#1c1714"
+  }
+}

@@ -1,0 +1,95 @@
+<div id="yinamp-concept" aria-label="Yinamp player concept">
+  <style>
+    #yinamp-concept{--ya-led:#a7ff48;--ya-shell:#30313f;--ya-edge:#777886;--ya-text:#dddde2;color:#dddde2;font:12px Tahoma,Arial,sans-serif;padding:24px 12px;background:radial-gradient(ellipse at 50% 35%,#272837,#13141c 75%);min-height:380px;box-sizing:border-box}
+    #yinamp-concept *{box-sizing:border-box}
+    #yinamp-concept .ya-desktop{max-width:650px;margin:auto;display:grid;grid-template-columns:minmax(0,300px) minmax(0,340px);gap:7px;align-items:start}
+    #yinamp-concept .ya-window{background:var(--ya-shell);border:2px solid;border-color:var(--ya-edge) #11121b #11121b var(--ya-edge);padding:4px;box-shadow:3px 4px 0 #080910}
+    #yinamp-concept .ya-bar{display:flex;align-items:center;gap:7px;padding:2px 4px;margin-bottom:6px;background:linear-gradient(#56576a,#252633);color:#e5e5ed;letter-spacing:1px;font-size:11px}
+    #yinamp-concept .ya-bar:before,#yinamp-concept .ya-bar:after{content:'';height:5px;background:repeating-linear-gradient(to bottom,#91929d 0 1px,#232431 1px 2px);flex:1}
+    #yinamp-concept .ya-display{background:#080e08;border:2px inset #5d5e66;color:var(--ya-led);padding:8px;display:grid;grid-template-columns:90px 1fr;gap:7px;font-family:monospace}
+    #yinamp-concept .ya-time{font:32px monospace;letter-spacing:-2px;white-space:nowrap}
+    #yinamp-concept .ya-readout{font-size:11px;color:var(--ya-led);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #yinamp-concept .ya-spectrum{height:28px;display:flex;align-items:end;gap:3px;margin-top:5px}
+    #yinamp-concept .ya-spectrum span{flex:1;background:repeating-linear-gradient(to top,var(--ya-led) 0 3px,#090f08 3px 4px);height:var(--height)}
+    #yinamp-concept .ya-status{font-size:11px;color:#9baf89;display:flex;justify-content:space-between;padding-top:5px}
+    #yinamp-concept input[type=range]{accent-color:var(--ya-led);width:100%;height:16px;margin:6px 0;cursor:pointer}
+    #yinamp-concept .ya-knobs{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 4px}
+    #yinamp-concept label{font-size:11px;color:#c8c8d1}
+    #yinamp-concept button{cursor:pointer;font:11px Tahoma,Arial,sans-serif;color:#10121b;background:linear-gradient(#c9cad3,#8a8b9a);border:2px solid;border-color:#e1e1e8 #151620 #151620 #e1e1e8;padding:4px 7px;border-radius:0}
+    #yinamp-concept button:active,#yinamp-concept button[aria-pressed=true]{border-color:#151620 #c4c5d0 #c4c5d0 #151620;background:#888b99}
+    #yinamp-concept .ya-transport{display:flex;align-items:center;gap:2px;margin:6px 0 3px}
+    #yinamp-concept .ya-transport button{min-width:31px}
+    #yinamp-concept .ya-transport .ya-spacer{flex:1}
+    #yinamp-concept .ya-toggles{display:flex;gap:5px;justify-content:space-between;padding:4px 0}
+    #yinamp-concept .ya-toggles button{padding:3px 6px}
+    #yinamp-concept .ya-left{display:grid;gap:7px}
+    #yinamp-concept .ya-equalizer{display:flex;justify-content:space-around;gap:5px;padding:7px 1px}
+    #yinamp-concept .ya-band{display:grid;justify-items:center;gap:6px;font-size:11px;color:#b8b9c5}
+    #yinamp-concept .ya-band input{writing-mode:vertical-lr;direction:rtl;width:14px;height:63px;margin:0}
+    #yinamp-concept .ya-eq-label{color:var(--ya-led);font-family:monospace;font-size:11px}
+    #yinamp-concept .ya-video{height:213px;background:radial-gradient(ellipse at 50% 50%,#343842,#090c13 73%);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;border:2px inset #5d5e66}
+    #yinamp-concept .ya-video-art{width:139px;height:139px;border:1px solid #60736f;transform:rotate(45deg);box-shadow:0 0 0 18px #80a89312,0 0 0 36px #80a89308;position:absolute}
+    #yinamp-concept .ya-video-title{position:relative;text-align:center;font:22px Georgia,serif;letter-spacing:5px;color:#e6efdf}
+    #yinamp-concept .ya-video-title small{display:block;font:11px monospace;letter-spacing:3px;margin-top:15px;color:#b1c1b2}
+    #yinamp-concept .ya-video-footer{display:flex;justify-content:space-between;gap:6px;color:#babbc6;font-size:11px;margin:7px 2px 3px}
+    #yinamp-concept .ya-playlist{grid-column:1/-1}
+    #yinamp-concept .ya-tracks{padding:4px;background:#080e08;border:2px inset #5d5e66}
+    #yinamp-concept .ya-track{width:100%;display:flex;text-align:left;gap:9px;align-items:center;border:0;padding:7px;background:none;color:var(--ya-led);font:12px monospace}
+    #yinamp-concept .ya-track[aria-pressed=true]{background:#34404c;border:0;color:#f4f7ef}
+    #yinamp-concept .ya-track span:nth-child(2){flex:1}
+    #yinamp-concept .ya-playlist-footer{display:flex;justify-content:space-between;align-items:center;gap:7px;padding:7px 1px 1px;font:11px monospace;color:var(--ya-led)}
+    #yinamp-concept .ya-mark{max-width:650px;margin:14px auto 0;color:#8b8d9f;font:11px monospace;letter-spacing:1px;display:flex;justify-content:space-between;gap:8px}
+    #yinamp-concept [hidden]{display:none!important}
+    @media(max-width:570px){#yinamp-concept .ya-desktop{grid-template-columns:minmax(0,1fr);max-width:350px}#yinamp-concept .ya-mark{max-width:350px}#yinamp-concept .ya-video{height:185px}}
+    @media(pointer:coarse){#yinamp-concept button{min-height:44px}#yinamp-concept .ya-transport{flex-wrap:wrap}#yinamp-concept .ya-band{min-width:28px}}
+  </style>
+  <div class="ya-desktop">
+    <div class="ya-left">
+      <section class="ya-window" aria-label="Main player">
+        <div class="ya-bar">⚡ YINAMP</div>
+        <div class="ya-display">
+          <div><div class="ya-time">00:00</div><div class="ya-spectrum" aria-hidden="true"><span style="--height:35%"></span><span style="--height:65%"></span><span style="--height:90%"></span><span style="--height:60%"></span><span style="--height:80%"></span><span style="--height:45%"></span><span style="--height:65%"></span><span style="--height:30%"></span><span style="--height:50%"></span></div></div>
+          <div><div class="ya-readout ya-song">1. NIGHTS IN ORBIT</div><div class="ya-status"><span>YOUTUBE</span><span>STEREO</span></div><div class="ya-status"><span class="ya-state" aria-live="polite">STOPPED</span><span>04:32</span></div></div>
+        </div>
+        <input class="ya-seek" type="range" min="0" max="272" value="0" aria-label="Playback position">
+        <div class="ya-knobs"><label>VOLUME <input type="range" value="74" aria-label="Volume"></label><label>BALANCE <input type="range" value="50" aria-label="Stereo balance"></label></div>
+        <div class="ya-transport"><button type="button" class="ya-prev" aria-label="Previous track">|◀</button><button type="button" class="ya-play" aria-label="Play" aria-pressed="false">▶</button><button type="button" class="ya-pause" aria-label="Pause">Ⅱ</button><button type="button" class="ya-stop" aria-label="Stop">■</button><button type="button" class="ya-next" aria-label="Next track">▶|</button><span class="ya-spacer"></span><button type="button" class="ya-eq-toggle" aria-pressed="true">EQ</button><button type="button" class="ya-pl-toggle" aria-pressed="true">PL</button></div>
+        <div class="ya-toggles"><button type="button" class="ya-switch" aria-pressed="false">SHUFFLE</button><button type="button" class="ya-switch" aria-pressed="false">REPEAT</button><button type="button" class="ya-skin">SKIN ▾</button></div>
+      </section>
+      <section class="ya-window ya-eq" aria-label="Equalizer panel">
+        <div class="ya-bar">EQUALIZER</div><div class="ya-eq-label">ON · CLASSIC CURVE</div>
+        <div class="ya-equalizer"><label class="ya-band"><input type="range" value="64" aria-label="60 Hz">60</label><label class="ya-band"><input type="range" value="58" aria-label="170 Hz">170</label><label class="ya-band"><input type="range" value="45" aria-label="310 Hz">310</label><label class="ya-band"><input type="range" value="40" aria-label="600 Hz">600</label><label class="ya-band"><input type="range" value="44" aria-label="1 kHz">1K</label><label class="ya-band"><input type="range" value="52" aria-label="3 kHz">3K</label><label class="ya-band"><input type="range" value="60" aria-label="6 kHz">6K</label><label class="ya-band"><input type="range" value="68" aria-label="12 kHz">12K</label></div>
+      </section>
+    </div>
+    <section class="ya-window" aria-label="YouTube video panel">
+      <div class="ya-bar">YINAMP VIDEO</div>
+      <div class="ya-video"><div class="ya-video-art" aria-hidden="true"></div><div class="ya-video-title">NIGHTS<br>IN ORBIT<small>VIDEO PREVIEW</small></div></div>
+      <div class="ya-video-footer"><span>YOUTUBE · 16:9</span><span class="ya-video-state">READY</span></div>
+    </section>
+    <section class="ya-window ya-playlist" aria-label="Playlist panel">
+      <div class="ya-bar">PLAYLIST EDITOR</div>
+      <div class="ya-tracks"><button type="button" class="ya-track" aria-pressed="true"><span>01.</span><span>Nights in Orbit</span><span>4:32</span></button><button type="button" class="ya-track" aria-pressed="false"><span>02.</span><span>Midnight Dial-Up</span><span>3:48</span></button><button type="button" class="ya-track" aria-pressed="false"><span>03.</span><span>Static on the Stereo</span><span>5:16</span></button></div>
+      <div class="ya-playlist-footer"><span>3 TRACKS · 13:36</span><span>YINAMP / CLASSIC</span></div>
+    </section>
+  </div>
+  <div class="ya-mark"><span>YINAMP — BACK TO THE DESKTOP.</span><span>CONCEPT 01</span></div>
+  <script>
+    (()=>{
+      const root=document.getElementById('yinamp-concept');
+      const q=s=>root.querySelector(s);
+      const tracks=Array.from(root.querySelectorAll('.ya-track'));
+      const names=['Nights in Orbit','Midnight Dial-Up','Static on the Stereo'];
+      const settings={skin:'Classic',equalizer:true,playlist:true};
+      let selected=0;
+      const status=value=>{q('.ya-state').textContent=value;q('.ya-video-state').textContent=value;q('.ya-play').setAttribute('aria-pressed',String(value==='PLAYING'));};
+      const choose=index=>{selected=(index+tracks.length)%tracks.length;tracks.forEach((t,i)=>t.setAttribute('aria-pressed',String(i===selected)));q('.ya-song').textContent=`${selected+1}. ${names[selected].toUpperCase()}`;q('.ya-video-title').textContent=names[selected].toUpperCase();q('.ya-seek').value=0;q('.ya-time').textContent='00:00';};
+      q('.ya-play').onclick=()=>status('PLAYING');q('.ya-pause').onclick=()=>status('PAUSED');q('.ya-stop').onclick=()=>{status('STOPPED');q('.ya-time').textContent='00:00';q('.ya-seek').value=0;};
+      q('.ya-prev').onclick=()=>choose(selected-1);q('.ya-next').onclick=()=>choose(selected+1);tracks.forEach((t,i)=>t.onclick=()=>choose(i));
+      q('.ya-seek').oninput=e=>{const value=Number(e.target.value);q('.ya-time').textContent=String(Math.floor(value/60)).padStart(2,'0')+':'+String(value%60).padStart(2,'0');};
+      root.querySelectorAll('.ya-switch').forEach(b=>b.onclick=()=>b.setAttribute('aria-pressed',String(b.getAttribute('aria-pressed')!=='true')));
+      const render=()=>{const skins={Classic:['#a7ff48','#30313f','#777886'],Amber:['#ffd16d','#3d332b','#99816b'],Ice:['#6ee8ff','#293747','#69879e']};const colors=skins[settings.skin];root.style.setProperty('--ya-led',colors[0]);root.style.setProperty('--ya-shell',colors[1]);root.style.setProperty('--ya-edge',colors[2]);q('.ya-eq').hidden=!settings.equalizer;q('.ya-playlist').hidden=!settings.playlist;q('.ya-eq-toggle').setAttribute('aria-pressed',String(settings.equalizer));q('.ya-pl-toggle').setAttribute('aria-pressed',String(settings.playlist));};
+      q('.ya-eq-toggle').onclick=()=>{settings.equalizer=!settings.equalizer;render();};q('.ya-pl-toggle').onclick=()=>{settings.playlist=!settings.playlist;render();};q('.ya-skin').onclick=()=>{const options=['Classic','Amber','Ice'];settings.skin=options[(options.indexOf(settings.skin)+1)%options.length];render();};render();
+      if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:render});tweak.addSelect(settings,'skin',{label:'Skin',options:['Classic','Amber','Ice']});tweak.addToggle(settings,'equalizer',{label:'Equalizer panel'});tweak.addToggle(settings,'playlist',{label:'Playlist panel'});}
+    })();
+  </script>
+</div>

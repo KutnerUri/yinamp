@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "Ice",
+  "colors": {
+    "shell": "#293747",
+    "edge": "#6f90ab",
+    "accent": "#6ee8ff",
+    "screen": "#06111b",
+    "text": "#dcecf6",
+    "button": "#9ebcd2",
+    "desktop": "#111b28"
+  }
+}

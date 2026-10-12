@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="theme-color" content="#14151e">
+  <meta name="description" content="Yinamp brings the classic desktop player to YouTube. Drag your windows, build your playlist, and make your own skin.">
+  <title>Yinamp — Back to the desktop.</title>
+  <link rel="icon" href="/src/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/src/styles.css">
+  <script type="module" src="/src/app.js"></script>
+</head>
+<body>
+  <header class="desktop-header">
+    <a href="/" class="wordmark" aria-label="Yinamp home"><span class="bolt" aria-hidden="true">ϟ</span> yinamp<span class="version">v0.1</span></a>
+    <nav aria-label="Desktop controls"><button id="open-skins" class="desktop-button">Skins</button><button id="reset-layout" class="desktop-button">Arrange windows</button><button id="open-help" class="desktop-button" aria-label="Help and keyboard shortcuts">?</button></nav>
+  </header>
+  <main>
+    <div class="intro"><span class="eyebrow">LESS FEED. MORE MUSIC.</span><p>Back to the desktop.</p></div>
+    <div id="desktop" class="desktop" aria-label="Yinamp desktop">
+      <section class="player-window main-window" data-panel="main" aria-label="Main player">
+        <div class="titlebar"><span class="title-lines"></span><h1><span class="mini-bolt" aria-hidden="true">ϟ</span> YINAMP</h1><span class="title-lines"></span><button class="title-button" id="compact-main" aria-label="Collapse main player" aria-expanded="true">▁</button></div>
+        <div class="window-body" id="main-body">
+          <div class="lcd">
+            <div class="time-cell"><div class="clock"><span id="play-indicator" aria-hidden="true">■</span><output id="time" aria-label="Elapsed time">00:00</output></div><div id="visualizer" class="spectrum" aria-label="Decorative playback visualizer"></div></div>
+            <div class="track-readout"><div class="track-title" id="track-title">CARTOON — ON &amp; ON</div><div class="source-info"><span>YOUTUBE</span><span>EMBED</span></div><div class="source-info"><span id="playback-state" role="status">CONNECTING</span><span id="duration">--:--</span></div></div>
+          </div>
+          <label class="seek-label"><span class="sr-only">Playback position</span><input id="seek" class="seek" type="range" min="0" max="100" value="0" step="1" disabled aria-valuetext="00:00"></label>
+          <div class="mix-controls"><label for="volume">VOLUME <output id="volume-value">75%</output><input id="volume" type="range" min="0" max="100" value="75"></label><label class="unavailable" for="balance" title="YouTube does not expose stereo balance">BALANCE <span>YOUTUBE: N/A</span><input id="balance" type="range" min="-100" max="100" value="0" disabled></label></div>
+          <div class="transport" aria-label="Playback controls"><button id="previous" class="metal transport-button" aria-label="Previous track"><span aria-hidden="true">|◀</span></button><button id="play" class="metal transport-button" aria-label="Play"><span aria-hidden="true">▶</span></button><button id="pause" class="metal transport-button" aria-label="Pause"><span aria-hidden="true">Ⅱ</span></button><button id="stop" class="metal transport-button" aria-label="Stop"><span aria-hidden="true">■</span></button><button id="next" class="metal transport-button" aria-label="Next track"><span aria-hidden="true">▶|</span></button><button id="open-add" class="metal transport-button eject-button" aria-label="Add YouTube video"><span aria-hidden="true">⏏</span></button><div class="panel-toggles"><button id="toggle-eq" class="metal small-button" aria-pressed="true" aria-controls="eq-panel">EQ</button><button id="toggle-playlist" class="metal small-button" aria-pressed="true" aria-controls="playlist-panel">PL</button></div></div>
+          <div class="mode-row"><button id="shuffle" class="mode-button" aria-pressed="false"><span class="mode-light" aria-hidden="true"></span>SHUFFLE</button><button id="repeat" class="mode-button" aria-label="Repeat off" aria-pressed="false"><span class="mode-light" aria-hidden="true"></span><span id="repeat-label">REPEAT</span></button><button id="mute" class="mode-button" aria-pressed="false">MUTE</button></div>
+          <div class="main-footer"><span id="skin-name">CLASSIC SKIN</span><span id="connection-light"><span class="connection-dot"></span> CONNECTING</span></div>
+        </div>
+      </section>
+      <section id="eq-panel" class="player-window eq-window" data-panel="eq" aria-label="Equalizer">
+        <div class="titlebar"><span class="title-lines"></span><h2>EQUALIZER</h2><span class="title-lines"></span><button class="title-button" data-close="eq" aria-label="Hide equalizer">×</button></div>
+        <div class="window-body"><div class="eq-toolbar"><span class="eq-source">YOUTUBE AUDIO</span><span class="eq-note">EQ UNAVAILABLE</span></div><div class="eq-curve" aria-hidden="true"><div class="curve-line"></div></div><div class="eq-sliders" aria-label="Equalizer is unavailable for YouTube audio"><label>PRE<input type="range" min="-12" max="12" value="0" disabled aria-label="Preamp unavailable"></label><span class="eq-divider"></span><label>60<input type="range" min="-12" max="12" value="0" disabled aria-label="60 Hz unavailable"></label><label>170<input type="range" min="-12" max="12" value="0" disabled aria-label="170 Hz unavailable"></label><label>310<input type="range" min="-12" max="12" value="0" disabled aria-label="310 Hz unavailable"></label><label>600<input type="range" min="-12" max="12" value="0" disabled aria-label="600 Hz unavailable"></label><label>1K<input type="range" min="-12" max="12" value="0" disabled aria-label="1 kHz unavailable"></label><label>3K<input type="range" min="-12" max="12" value="0" disabled aria-label="3 kHz unavailable"></label><label>6K<input type="range" min="-12" max="12" value="0" disabled aria-label="6 kHz unavailable"></label><label>12K<input type="range" min="-12" max="12" value="0" disabled aria-label="12 kHz unavailable"></label><label>16K<input type="range" min="-12" max="12" value="0" disabled aria-label="16 kHz unavailable"></label></div><p class="eq-explanation">YouTube keeps its audio inside the video player.</p></div>
+      </section>
+      <section class="player-window video-window" data-panel="video" aria-label="Video player">
+        <div class="titlebar"><span class="title-lines"></span><h2>YINAMP VIDEO</h2><span class="title-lines"></span><button id="fullscreen" class="title-button" aria-label="Fullscreen video">⛶</button></div>
+        <div class="window-body"><div class="video-viewport" id="video-viewport"><div id="youtube-host"><div id="youtube-player"></div></div><div id="video-placeholder" class="video-placeholder"><div class="video-emblem" aria-hidden="true">ϟ</div><span>YOUR MUSIC. YOUR WINDOW.</span><small id="video-placeholder-note">Connecting to YouTube…</small></div></div><div class="video-footer"><span><span class="tiny-dot"></span> YOUTUBE</span><a id="youtube-link" href="https://www.youtube.com/watch?v=K4DyBUG242c" target="_blank" rel="noopener noreferrer">Open on YouTube ↗</a></div><div id="player-error" class="player-error" hidden><p id="player-error-message" role="alert"></p><button id="retry-player" class="metal">Retry</button></div></div>
+      </section>
+      <section id="playlist-panel" class="player-window playlist-window" data-panel="playlist" aria-label="Playlist editor">
+        <div class="titlebar"><span class="title-lines"></span><h2>PLAYLIST EDITOR</h2><span class="title-lines"></span><button class="title-button" data-close="playlist" aria-label="Hide playlist">×</button></div>
+        <div class="window-body"><ol id="playlist" class="playlist" aria-label="Queued videos"></ol><div class="playlist-toolbar"><div class="playlist-actions"><button id="playlist-add" class="metal small-button">+ ADD</button><button id="export-playlist" class="metal small-button">SAVE</button><button id="import-playlist" class="metal small-button">LOAD</button></div><span id="playlist-summary">3 TRACKS</span></div></div>
+      </section>
+    </div>
+    <div class="desktop-hint"><span>DRAG THE TITLE BARS. MAKE YOURSELF AT HOME.</span><span>EST. 2026 / INSPIRED BY 1997</span></div>
+    <p id="notice" class="notice" role="status" aria-live="polite"></p>
+  </main>
+  <footer class="desktop-footer"><span>A little nostalgia. A lot of music.</span><button class="desktop-button" id="footer-skins">MAKE IT YOURS ↗</button></footer>
+  <dialog id="add-dialog" class="retro-dialog" aria-labelledby="add-heading"><form id="add-form"><div class="dialog-heading"><h2 id="add-heading">ADD TO PLAYLIST</h2><button type="button" class="title-button" data-dismiss aria-label="Close add video">×</button></div><label for="video-url">YouTube link or video ID</label><input id="video-url" type="text" autocomplete="off" placeholder="https://www.youtube.com/watch?v=…" required><label for="video-title">Title <span class="optional">(optional)</span></label><input id="video-title" type="text" maxlength="300" placeholder="We’ll get the title from YouTube"><p id="add-error" class="form-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" class="metal" data-dismiss>Cancel</button><button type="submit" class="metal accent-button">ADD VIDEO</button></div></form></dialog>
+  <dialog id="skins-dialog" class="retro-dialog" aria-labelledby="skins-heading"><div class="dialog-heading"><h2 id="skins-heading">MAKE IT YOURS</h2><button class="title-button" data-dismiss aria-label="Close skins">×</button></div><div class="skin-options" aria-label="Built-in skins"><button class="skin-choice" data-skin="classic"><span class="skin-swatch classic-swatch"></span>CLASSIC</button><button class="skin-choice" data-skin="amber"><span class="skin-swatch amber-swatch"></span>AMBER</button><button class="skin-choice" data-skin="ice"><span class="skin-swatch ice-swatch"></span>ICE</button></div><label for="custom-skin-name">Skin name</label><input id="custom-skin-name" type="text" maxlength="40" value="Classic"><div id="skin-colors" class="skin-colors"></div><p class="dialog-note">Color changes apply live. Import or export a JSON skin to share it.</p><p id="skin-error" class="form-error" role="alert" hidden></p><div class="dialog-actions"><button id="import-skin" class="metal">IMPORT SKIN</button><button id="export-skin" class="metal accent-button">EXPORT SKIN</button></div></dialog>
+  <dialog id="help-dialog" class="retro-dialog" aria-labelledby="help-heading"><div class="dialog-heading"><h2 id="help-heading">WELCOME BACK.</h2><button class="title-button" data-dismiss aria-label="Close help">×</button></div><p>Add a YouTube link with <strong>+ ADD</strong>, then select a track and press play. Your playlist, skin, volume, and window positions stay on this browser.</p><dl class="shortcuts"><dt>Space</dt><dd>Play / pause</dd><dt>← / →</dt><dd>Seek 5 seconds</dd><dt>↑ / ↓</dt><dd>Adjust volume</dd><dt>M</dt><dd>Mute</dd><dt>N / P</dt><dd>Next / previous track</dd></dl><p>Drag a window’s title bar to move it. <strong>Arrange windows</strong> restores the original layout.</p><p class="dialog-note">Some videos don’t allow embedded playback. Use “Open on YouTube” for those. EQ and balance are unavailable for YouTube audio. The spectrum is decorative.</p></dialog>
+  <input type="file" id="skin-file" accept=".json,application/json" hidden>
+  <input type="file" id="playlist-file" accept=".json,application/json" hidden>
+</body>
+</html>
