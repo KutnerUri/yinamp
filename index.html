@@ -45,6 +45,16 @@
         <div class="titlebar"><span class="title-lines"></span><h2>PLAYLIST EDITOR</h2><span class="title-lines"></span><button class="title-button" data-close="playlist" aria-label="Hide playlist">×</button></div>
         <div class="window-body"><ol id="playlist" class="playlist" aria-label="Queued videos"></ol><div class="playlist-toolbar"><div class="playlist-actions"><button id="playlist-add" class="metal small-button">+ ADD</button><button id="export-playlist" class="metal small-button">SAVE</button><button id="import-playlist" class="metal small-button">LOAD</button><button id="retry-unavailable" class="metal small-button" aria-label="Retry unavailable tracks" hidden>RETRY</button></div><span id="playlist-summary">3 TRACKS</span></div></div>
       </section>
+    <section id="library-panel" class="player-window library-window" data-panel="library" aria-label="Music library">
+      <div class="titlebar"><span class="title-lines"></span><h2>MUSIC LIBRARY</h2><span class="title-lines"></span><button id="library-refresh" class="title-button" aria-label="Refresh music library">↻</button></div>
+      <div class="window-body">
+        <div class="library-toolbar"><div class="library-tabs" role="tablist" aria-label="Music sources"><button id="library-tab-mine" data-library-tab="mine" role="tab" aria-controls="library-results" aria-selected="true">MY PLAYLISTS</button><button id="library-tab-mixes" data-library-tab="mixes" role="tab" aria-controls="library-results" aria-selected="false">MIXES</button><button id="library-tab-discover" data-library-tab="discover" role="tab" aria-controls="library-results" aria-selected="false">DISCOVER</button></div><label class="sr-only" for="library-filter">Filter playlists</label><input id="library-filter" type="search" placeholder="Find a playlist…" autocomplete="off" maxlength="200"></div>
+        <div class="library-summary"><span id="library-caption">YOUR MUSIC, ONE CLICK AWAY.</span><span id="library-count"></span></div>
+        <p id="library-message" class="library-message" role="status">Loading your music library…</p>
+        <button id="library-sign-in" class="metal small-button" hidden>SIGN IN TO YOUTUBE MUSIC</button>
+        <div id="library-results" class="library-results" role="tabpanel" aria-labelledby="library-tab-mine" aria-busy="true"></div>
+      </div>
+    </section>
     </div>
     <div class="desktop-hint"><span>DRAG THE TITLE BARS. MAKE YOURSELF AT HOME.</span><span>EST. 2026 / INSPIRED BY 1997</span></div>
     <p id="notice" class="notice" role="status" aria-live="polite"></p>

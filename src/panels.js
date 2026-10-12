@@ -5,17 +5,23 @@ export function setupPanels(state, persist) {
   const panels = [...desktop.querySelectorAll('[data-panel]')];
   const wide = window.matchMedia('(min-width: 941px)');
   let layer = 5;
-  const defaults = () => ({ main: { x: 0, y: 0 }, eq: { x: 0, y: panels[0].offsetHeight + 8 }, video: { x: 350, y: 0 }, playlist: { x: 350, y: panels.find(p => p.dataset.panel === 'video').offsetHeight + 8 } });
+  const defaults = () => {
+    const height = name => panels.find(panel => panel.dataset.panel === name)?.offsetHeight ?? 0;
+    const positions = { main: { x: 0, y: 0 }, eq: { x: 0, y: height('main') + 8 }, video: { x: 350, y: 0 }, playlist: { x: 350, y: height('video') + 8 } };
+    positions.library = { x: 0, y: Math.max(positions.eq.y + height('eq'), positions.playlist.y + height('playlist')) + 12 };
+    return positions;
+  };
   function resizeDesktop() {
     if (!wide.matches) { desktop.style.height = ''; return; }
     desktop.style.height = `${Math.max(440, ...panels.filter(p => !p.hidden).map(p => parseFloat(p.style.getPropertyValue('--y')) + p.offsetHeight + 24))}px`;
   }
   function apply() {
     const positions = defaults();
+    const limit = Math.max(950, positions.library.y + (panels.find(panel => panel.dataset.panel === 'library')?.offsetHeight ?? 0) + 24);
     for (const panel of panels) {
       const point = state.layout[panel.dataset.panel] ?? positions[panel.dataset.panel];
       panel.style.setProperty('--x', `${clamp(point.x, 0, Math.max(0, desktop.clientWidth - panel.offsetWidth))}px`);
-      panel.style.setProperty('--y', `${clamp(point.y, 0, Math.max(0, 950 - panel.offsetHeight))}px`);
+      panel.style.setProperty('--y', `${clamp(point.y, 0, Math.max(0, limit - panel.offsetHeight))}px`);
     }
     resizeDesktop();
   }
@@ -45,7 +51,8 @@ export function setupPanels(state, persist) {
         }
       }
       panel.style.setProperty('--x', `${clamp(x, 0, desktop.clientWidth - panel.offsetWidth)}px`);
-      panel.style.setProperty('--y', `${clamp(y, 0, Math.max(0, 950 - panel.offsetHeight))}px`);
+      const limit = Math.max(950, defaults().library.y + (panels.find(panel => panel.dataset.panel === 'library')?.offsetHeight ?? 0) + 24);
+      panel.style.setProperty('--y', `${clamp(y, 0, Math.max(0, limit - panel.offsetHeight))}px`);
       resizeDesktop();
     });
     const finish = () => {

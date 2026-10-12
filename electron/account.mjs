@@ -12,7 +12,7 @@ export function readYouTubeAccount() {
   const topbar = data?.topbar?.desktopTopbarRenderer;
   const loggedIn = typeof config?.get === 'function' ? config.get('LOGGED_IN') : config?.data_?.LOGGED_IN;
   const loggedOut = data?.responseContext?.webResponseContextData?.loggedOut;
-  const avatarButton = document.querySelector('#avatar-btn');
+  const avatarButton = document.querySelector('#avatar-btn, ytmusic-nav-bar #avatar');
   const avatarData = topbar?.topbarButtons?.find(button => button.topbarMenuButtonRenderer?.avatar)?.topbarMenuButtonRenderer.avatar;
   const status = typeof loggedIn === 'boolean' ? loggedIn ? 'signed-in' : 'signed-out'
     : typeof loggedOut === 'boolean' ? loggedOut ? 'signed-out' : 'signed-in'
@@ -36,7 +36,9 @@ export function accountSnapshot(value) {
 }
 export function accountState(player, account, issue = '') {
   const known = ['signed-in', 'signed-out'].includes(account.status);
-  const identity = known ? account : player;
+  // A music-library page may expose its login flag before its avatar loads.
+  // Prefer the actual player's identity in that case instead of clearing it.
+  const identity = known && (account.status === 'signed-out' || account.avatar || player.status !== 'signed-in') ? account : player;
   const avatarKey = value => value?.split('=')[0]?.split('?')[0];
   const needsRefresh = known && player.status !== 'checking' && (player.status !== account.status || Boolean(player.avatar && account.avatar && avatarKey(player.avatar) !== avatarKey(account.avatar)));
   const connectionConfirmed = player.status === 'signed-in' && !needsRefresh && (identity === player || Boolean(player.avatar && identity.avatar && avatarKey(player.avatar) === avatarKey(identity.avatar)));

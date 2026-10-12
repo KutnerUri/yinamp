@@ -2,11 +2,12 @@ export const STORAGE_KEY = 'yinamp.v1';
 export const RETRY_AFTER_MS = 15 * 60 * 1000;
 export const TRACK_ERROR_CODES = new Set([2, 5, 100, 101, 150]);
 export const canAttemptTrack = (track, now = Date.now()) => !track.unavailable || now - track.unavailable.checkedAt >= RETRY_AFTER_MS;
-export const DEFAULT_TRACKS = [
+export const LEGACY_DEMO_TRACKS = [
   { id: 'K4DyBUG242c', title: 'Cartoon — On & On', duration: 0 },
   { id: 'J2X5mJ3HDYE', title: 'DEAF KEV — Invincible', duration: 0 },
   { id: 'jK2aIUmmdP4', title: 'Different Heaven & EH!DE — My Heart', duration: 0 },
 ];
+export const DEFAULT_TRACKS = [];
 export const SKINS = {
   classic: { version: 1, name: 'Classic', colors: { shell: '#30313f', edge: '#7c7e91', accent: '#a7ff48', screen: '#080e08', text: '#dddde7', button: '#aeb0bf', desktop: '#14151e' } },
   amber: { version: 1, name: 'Amber', colors: { shell: '#3d332d', edge: '#9b8773', accent: '#ffd16d', screen: '#160e06', text: '#f0e1ce', button: '#c2a78c', desktop: '#1c1714' } },
@@ -74,11 +75,15 @@ export function validateSkin(value) {
 }
 
 export function initialState(saved) {
-  const state = { playlist: structuredClone(DEFAULT_TRACKS), selectedId: DEFAULT_TRACKS[0].id, volume: 75, muted: false, shuffle: false, repeat: 'off', skin: structuredClone(SKINS.classic), visibility: { eq: true, playlist: true }, layout: {} };
+  const state = { version: 2, playlist: [], selectedId: null, volume: 75, muted: false, shuffle: false, repeat: 'off', skin: structuredClone(SKINS.classic), visibility: { eq: true, playlist: true }, layout: {} };
   if (!saved || typeof saved !== 'object') return state;
   if (Array.isArray(saved.playlist)) {
     const seen = new Set();
-    state.playlist = saved.playlist.filter(t => t && /^[\w-]{11}$/.test(t.id) && !seen.has(t.id) && seen.add(t.id)).slice(0, 500).map(t => {
+    // Older installations seeded exactly these three tracks at the front.
+    // Migrate that prefix once; other saved tracks and settings are preserved.
+    const legacyPrefix = saved.version !== 2 && LEGACY_DEMO_TRACKS.every((track, index) => saved.playlist[index]?.id === track.id);
+    const playlist = legacyPrefix ? saved.playlist.slice(LEGACY_DEMO_TRACKS.length) : saved.playlist;
+    state.playlist = playlist.filter(t => t && /^[\w-]{11}$/.test(t.id) && !seen.has(t.id) && seen.add(t.id)).slice(0, 500).map(t => {
       const track = { id: t.id, title: typeof t.title === 'string' ? t.title.slice(0, 300) : `YouTube — ${t.id}`, duration: clamp(t.duration, 0, 604800), start: clamp(t.start, 0, 86400) };
       if (TRACK_ERROR_CODES.has(t.unavailable?.code)) track.unavailable = { code: t.unavailable.code, message: typeof t.unavailable.message === 'string' ? t.unavailable.message.slice(0, 300) : 'This video could not be played.', checkedAt: Number.isFinite(t.unavailable.checkedAt) ? clamp(t.unavailable.checkedAt, 0, Date.now()) : 0 };
       return track;
@@ -91,7 +96,7 @@ export function initialState(saved) {
   if (['off', 'all', 'one'].includes(saved.repeat)) state.repeat = saved.repeat;
   try { if (saved.skin) state.skin = validateSkin(saved.skin); } catch { /* Fall back to the classic skin. */ }
   for (const key of ['eq', 'playlist']) if (typeof saved.visibility?.[key] === 'boolean') state.visibility[key] = saved.visibility[key];
-  for (const key of ['main', 'eq', 'video', 'playlist']) {
+  for (const key of ['main', 'eq', 'video', 'playlist', 'library']) {
     const point = saved.layout?.[key];
     if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) state.layout[key] = { x: clamp(point.x, 0, 3000), y: clamp(point.y, 0, 3000) };
   }

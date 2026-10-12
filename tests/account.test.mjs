@@ -45,7 +45,8 @@ test('account UI distinguishes the login window from the player, including accou
   assert.equal(state.needsRefresh, false); assert.equal(state.premium, true);
   const different = accountState(user, accountSnapshot({ ...user, avatar: 'https://yt3.googleusercontent.com/other=s88' }));
   assert.equal(different.needsRefresh, true); assert.equal(different.premium, null); assert.equal(different.connectionConfirmed, false);
-  assert.equal(accountState(user, accountSnapshot({ ...user, avatar: null })).connectionConfirmed, false);
+  const incompleteLibraryIdentity = accountState(user, accountSnapshot({ ...user, avatar: null }));
+  assert.equal(incompleteLibraryIdentity.connectionConfirmed, true); assert.equal(incompleteLibraryIdentity.avatar, user.avatar);
   assert.equal(accountState(user, out).needsRefresh, true);
   assert.equal(accountState(accountSnapshot({ status: 'checking' }), user).needsRefresh, false);
 });

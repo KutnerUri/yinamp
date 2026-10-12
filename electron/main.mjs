@@ -9,6 +9,7 @@ import { initialState } from '../src/core.js';
 import { YOUTUBE_PARTITION, INTERFACE_PARTITION, accountURL, isAccountURL, watchURL, isYouTubeURL, isExternalURL, viewBounds, validateCommand } from './contracts.mjs';
 import { snapshotScript, commandScript, playerLayoutCSS } from './page-scripts.mjs';
 import { accountSnapshot, accountState, accountStatusScript, isAccountStatusPage, navigationDetails } from './account.mjs';
+import { createMusicLibrary } from './library.mjs';
 
 app.setName('Yinamp');
 const profile = process.argv.find(value => value.startsWith('--profile='));
@@ -30,6 +31,7 @@ let diagnosticPath;
 let accountPoll, accountReading = false, accountVersion = 0, loginIssue = '';
 let playerAccount = accountSnapshot({ status: 'checking' });
 let windowAccount = accountSnapshot(null), publishedAccount = '';
+const library = createMusicLibrary({ onIdentity: identity => { if (identity.status === 'signed-in') { windowAccount = identity; publishAccount(); } } });
 function diagnostic(event, details = {}) {
   if (!diagnosticPath) return;
   try {
@@ -40,6 +42,8 @@ function diagnostic(event, details = {}) {
 const send = event => { if (win && !win.isDestroyed()) win.webContents.send('yinamp:player-state', event); };
 function publishAccount() {
   const data = accountState(playerAccount, windowAccount, loginIssue);
+  data.playerLoaded = Boolean(requestedId);
+  if (!requestedId) data.needsRefresh = false;
   const key = JSON.stringify(data);
   if (key !== publishedAccount) { publishedAccount = key; send({ type: 'account-state', data }); }
   return data;
@@ -68,6 +72,7 @@ async function refreshAccountStatus() {
   } finally { accountReading = false; }
 }
 function navigateAccount(window, url) {
+  library.invalidate();
   loginIssue = ''; publishAccount();
   // Navigation failures are reported by did-fail-load. Redirects may cancel
   // loadURL's promise, so do not make opening the window depend on that promise.
@@ -201,6 +206,7 @@ async function openAccount(action) {
     if (shuttingDown) return;
     event.preventDefault();
     accountRequested = false;
+    library.invalidate();
     window.hide();
     void window.loadURL('about:blank').catch(() => {});
     void youtubeSession.cookies.flushStore().catch(() => {});
@@ -211,6 +217,7 @@ async function openAccount(action) {
   return { opened: accountRequested };
 }
 async function signOutAccount() {
+  library.invalidate();
   suppressAccountRefresh = true;
   ++accountVersion;
   try {
@@ -280,6 +287,12 @@ async function start() {
     if (action === 'sign-out') return signOutAccount();
     return openAccount(action);
   });
+  ipcMain.handle('yinamp:library', async (event, value) => {
+    trusted(event);
+    if (value?.action === 'browse') return library.browse(value.section, value.refresh === true);
+    if (value?.action === 'playlist') return library.playlist(value.playlist);
+    throw new Error('Unsupported library request');
+  });
   ipcMain.handle('yinamp:save-state', (event, value) => {
     trusted(event);
     if (JSON.stringify(value).length > 1000000) throw new Error('Desktop state is too large');
@@ -325,6 +338,7 @@ async function start() {
     if (shuttingDown) return;
     event.preventDefault(); shuttingDown = true;
     diagnostic('shutdown');
+    library.invalidate();
     clearInterval(poll);
     clearInterval(accountPoll);
     writeQueue.catch(() => {}).finally(() => { server.close(); app.quit(); });

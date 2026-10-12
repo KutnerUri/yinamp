@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RETRY_AFTER_MS, canAttemptTrack, parseVideoInput, parseYouTubeInput, appendPlaylistTracks, initialState, nextTrackIndex, validateSkin, SKINS, formatTime } from '../src/core.js';
+import { RETRY_AFTER_MS, LEGACY_DEMO_TRACKS, canAttemptTrack, parseVideoInput, parseYouTubeInput, appendPlaylistTracks, initialState, nextTrackIndex, validateSkin, SKINS, formatTime } from '../src/core.js';
+
+const sampleState = () => initialState({version:2,playlist:structuredClone(LEGACY_DEMO_TRACKS),selectedId:LEGACY_DEMO_TRACKS[0].id});
 
 test('video links preserve valid timestamps across supported YouTube surfaces', () => {
   for (const link of ['https://www.youtube.com/watch?v=M7lc1UVf-VE&t=1h2m3s', 'youtu.be/M7lc1UVf-VE?t=3723', 'https://music.youtube.com/watch?v=M7lc1UVf-VE&start=3723', 'https://www.youtube.com/shorts/M7lc1UVf-VE?t=3723', 'https://www.youtube.com/live/M7lc1UVf-VE?t=3723', 'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?start=3723']) assert.deepEqual(parseVideoInput(link), { id: 'M7lc1UVf-VE', start: 3723 });
@@ -27,7 +29,7 @@ test('playlist append preserves existing tracks and source order, skips duplicat
   assert.deepEqual(appendPlaylistTracks(existing, ['M7lc1UVf-VE']).added, []);
 });
 test('shuffle never chooses the current track and repeat respects queue endings', () => {
-  const state = initialState();
+  const state = sampleState();
   state.shuffle = true;
   for (const random of [0, .1, .5, .999999, 1]) assert.notEqual(nextTrackIndex(state, { random: () => random }), 0);
   state.shuffle = false;
@@ -40,7 +42,7 @@ test('shuffle never chooses the current track and repeat respects queue endings'
   state.playlist = []; assert.equal(nextTrackIndex(state), -1);
 });
 test('navigation skips recent failures, retries expired marks, and respects the end of a pass', () => {
-  const state = initialState();
+  const state = sampleState();
   const now = Date.now();
   state.playlist[1].unavailable = { code: 150, message: 'Blocked', checkedAt: now };
   assert.equal(nextTrackIndex(state, { now }), 2);
@@ -54,7 +56,7 @@ test('navigation skips recent failures, retries expired marks, and respects the 
   assert.equal(nextTrackIndex(state, { automatic: true, skipCurrent: true, now }), 0);
 });
 test('repeat-one and shuffle cannot loop over an entirely unavailable queue', () => {
-  const state = initialState(); const now = Date.now();
+  const state = sampleState(); const now = Date.now();
   for (const track of state.playlist) track.unavailable = { code: 150, checkedAt: now };
   for (const repeat of ['off', 'all', 'one']) {
     state.repeat = repeat;
@@ -68,7 +70,7 @@ test('repeat-one and shuffle cannot loop over an entirely unavailable queue', ()
   assert.equal(nextTrackIndex(state, { automatic: true, skipCurrent: true, now }), 2);
 });
 test('unavailable marks survive persistence while connection errors and corrupt marks do not', () => {
-  const state = initialState(); const now = Date.now();
+  const state = sampleState(); const now = Date.now();
   state.playlist[0].unavailable = { code: 150, message: 'Embedding disabled', checkedAt: now };
   state.playlist[1].unavailable = { code: 153, message: 'Connection', checkedAt: now };
   state.playlist[2].unavailable = { code: 100, message: 'Deleted', checkedAt: Infinity };
@@ -90,8 +92,8 @@ test('recovers corrupted persisted settings without losing a deliberately empty 
   assert.equal(initialState({ playlist: [] }).playlist.length, 0);
   assert.equal(initialState({ playlist: [] }).selectedId, null);
 });
-test('the default playlist survives a saved-state round trip', () => {
-  const state = initialState();
+test('a deliberately selected playlist survives a saved-state round trip', () => {
+  const state = sampleState();
   const restored = initialState(JSON.parse(JSON.stringify(state)));
   assert.deepEqual(restored.playlist.map(track => track.id), state.playlist.map(track => track.id));
 });
@@ -108,4 +110,13 @@ test('duration formatting handles hours, unknown values, and negative values', (
   assert.equal(formatTime(3723), '1:02:03');
   assert.equal(formatTime(-1), '00:00');
   assert.equal(formatTime(undefined), '00:00');
+});
+
+test('new users start empty and legacy demo prefixes are removed once', () => {
+  assert.deepEqual(initialState().playlist, []); assert.equal(initialState().selectedId, null);
+  const extra={id:'IHHq6lAgZzs',title:'My song',duration:100};
+  const migrated=initialState({playlist:[...LEGACY_DEMO_TRACKS,extra],selectedId:extra.id,volume:43});
+  assert.deepEqual(migrated.playlist.map(track=>track.id),[extra.id]);assert.equal(migrated.volume,43);
+  const deliberate=initialState({version:2,playlist:LEGACY_DEMO_TRACKS});assert.equal(deliberate.playlist.length,3);
+  assert.equal(initialState({playlist:[extra,LEGACY_DEMO_TRACKS[0]]}).playlist.length,2);
 });

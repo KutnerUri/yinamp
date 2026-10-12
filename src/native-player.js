@@ -52,7 +52,7 @@ export class NativePlayer {
         const bounds = window.getBoundingClientRect();
         return bounds.left < rect.right && bounds.right > rect.left && bounds.top < rect.bottom && bounds.bottom > rect.top;
       }));
-      const bounds = { x: rect.left + 2, y: rect.top + 2, width: Math.max(0, rect.width - 4), height: Math.max(0, rect.height - 4), visible: !covered && rect.bottom > 0 && rect.top < innerHeight };
+      const bounds = { x: rect.left + 2, y: rect.top + 2, width: Math.max(0, rect.width - 4), height: Math.max(0, rect.height - 4), visible: !covered && document.getElementById('video-placeholder').hidden && rect.top >= 0 && rect.bottom <= innerHeight };
       const key = JSON.stringify(bounds);
       if (key !== previousBounds) { previousBounds = key; this.bridge.layout(bounds); }
     };

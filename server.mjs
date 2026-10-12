@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve, extname, sep } from 'node:path';
 import { parsePlaylistListing } from './playlist-listing.mjs';
+import { parseMusicLibraryHTML, parseMusicPlaylistHTML } from './music-library.mjs';
 
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -23,18 +24,31 @@ export function createAppServer({ fetcher = fetch } = {}) {
     }
     try {
       const url = new URL(request.url, 'http://localhost');
+      if (url.pathname === '/api/library') {
+        if (url.searchParams.get('section') !== 'discover') return send(400, JSON.stringify({ error: 'Personal library views use the desktop app.' }));
+        try {
+          const upstream = await fetcher('https://music.youtube.com/', { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': request.headers['user-agent'] || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36' } });
+          if (!upstream.ok) throw new Error('Music suggestions could not load. Try refreshing.');
+          const html = await upstream.text();
+          if (html.length > 5000000) throw new Error('This music listing is too large.');
+          return send(200, JSON.stringify(parseMusicLibraryHTML(html)));
+        } catch { return send(502, JSON.stringify({ error: 'Music suggestions could not load. Try refreshing.' })); }
+      }
       if (url.pathname === '/api/playlist') {
         const id = url.searchParams.get('id');
         if (!/^[\w-]{2,150}$/.test(id ?? '')) return send(400, JSON.stringify({ error: 'Invalid YouTube playlist ID' }));
         try {
-          const endpoint = new URL('https://www.youtube.com/playlist');
+          const music = url.searchParams.get('source') === 'music';
+          const endpoint = new URL(music ? 'https://music.youtube.com/playlist' : 'https://www.youtube.com/playlist');
           endpoint.searchParams.set('list', id);
           endpoint.searchParams.set('hl', 'en');
-          const upstream = await fetcher(endpoint, { signal: AbortSignal.timeout(8000) });
+          const upstream = await fetcher(endpoint, { signal: AbortSignal.timeout(8000), ...(music ? { headers: { 'User-Agent': request.headers['user-agent'] || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36' } } : {}) });
           if (!upstream.ok) throw new Error('YouTube’s public playlist listing is unavailable. Please try again.');
           const html = await upstream.text();
           if (html.length > 5000000) throw new Error('This playlist listing is too large to import.');
-          return send(200, JSON.stringify(parsePlaylistListing(html, id)));
+          const data = music ? parseMusicPlaylistHTML(html) : parsePlaylistListing(html, id);
+          if (!data.tracks.length) throw new Error('This playlist is empty or unavailable.');
+          return send(200, JSON.stringify(data));
         } catch (error) {
           const message = error.name === 'TimeoutError' ? 'YouTube’s playlist listing took too long to respond. Please try again.' : error instanceof SyntaxError ? 'YouTube’s playlist listing could not be read. Please try again.' : error.message;
           return send(502, JSON.stringify({ error: message }));

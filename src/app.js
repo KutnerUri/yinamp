@@ -4,6 +4,7 @@ import { NativePlayer } from './native-player.js';
 import { setupPanels } from './panels.js';
 import { readPlaylistWithFallback } from './playlist-import.js';
 import { renderAccount } from './account-ui.js';
+import { setupMusicLibrary } from './library-ui.js';
 
 const $ = selector => document.querySelector(selector);
 let stored;
@@ -22,6 +23,7 @@ let playlistImport;
 let playbackRequested = false;
 let skipTimer;
 let retryingId = null;
+let musicLibrary;
 const currentTrack = () => state.playlist.find(track => track.id === state.selectedId);
 
 function notify(message, error = false) {
@@ -45,6 +47,7 @@ const player = new Player({
     $('#connection-light').innerHTML = '<span class="connection-dot"></span> CONNECTED';
     $('#connection-light').classList.add('connected');
     $('#video-placeholder').hidden = Boolean(currentTrack());
+    if (!currentTrack()) $('#video-placeholder-note').textContent = 'Choose a playlist from your library or add a song.';
     playback = currentTrack() ? 'READY' : 'EMPTY';
     updatePlayback();
   },
@@ -321,6 +324,7 @@ let desktopAccount = { status: 'checking', playerStatus: 'checking' };
 let accountIssue = '';
 function updateAccount(data) {
   desktopAccount = data; renderAccount(data);
+  musicLibrary?.accountChanged(data);
   if (data.issue && data.issue !== accountIssue) notify(data.issue, true);
   accountIssue = data.issue || '';
 }
@@ -350,6 +354,7 @@ $('#account-sign-out').onclick = () => accountAction('sign-out');
 $('#account-refresh').onclick = () => accountAction('refresh');
 $('#account-check').onclick = () => void checkAccount();
 $('#account-diagnostics').onclick = () => accountAction('diagnostics');
+musicLibrary = setupMusicLibrary({ onPlay: item => openOnlinePlaylist(item, true), onSignIn: () => accountAction('library'), onLayout: () => panels.refresh() });
 $('#reset-layout').onclick = () => { panels.reset(); notify('Windows arranged.'); };
 $('#compact-main').onclick = () => { const body = $('#main-body'); body.hidden = !body.hidden; $('#compact-main').setAttribute('aria-expanded', String(!body.hidden)); panels.refresh(); };
 $('#fullscreen').onclick = async () => { if (window.yinampDesktop) { player.fullscreen(); return; } try { if (document.fullscreenElement) await document.exitFullscreen(); else await $('#video-viewport').requestFullscreen(); } catch { notify('Use the fullscreen button inside the YouTube video on this browser.'); } };
@@ -375,8 +380,8 @@ function updateAddForm() {
   const wholePlaylist = hasPlaylist && (!parsed.video || $('#include-playlist').checked);
   $('#playlist-option').hidden = !hasPlaylist || !parsed.video;
   $('#video-title-field').hidden = wholePlaylist;
-  $('#add-submit').textContent = wholePlaylist ? 'ADD PLAYLIST' : 'ADD VIDEO';
-  $('#add-hint').textContent = wholePlaylist ? 'Append this playlist’s available videos. Tracks already queued are skipped.' : 'Add one video or import a public YouTube playlist.';
+  $('#add-submit').textContent = wholePlaylist ? 'OPEN PLAYLIST' : 'ADD VIDEO';
+  $('#add-hint').textContent = wholePlaylist ? 'Replace the queue with this playlist. Your current queue stays until it loads.' : 'Add one video or open a YouTube playlist.';
 }
 function setAddBusy(busy) {
   $('#add-form').setAttribute('aria-busy', String(busy));
@@ -410,6 +415,26 @@ $('#include-playlist').onchange = updateAddForm;
 $('#add-dialog').addEventListener('close', () => playlistImport?.abort());
 $('#add-dialog').addEventListener('cancel', () => playlistImport?.abort());
 
+async function openOnlinePlaylist(value, autoplay = false, options = {}) {
+  const source = window.yinampDesktop?.library
+    ? await window.yinampDesktop.library({ action: 'playlist', playlist: { id: value.id ?? value.playlistId, seed: value.seed ?? value.video?.id ?? null, source: value.source ?? 'youtube' } })
+    : value.source === 'music' ? await (async () => { const response = await fetch(`/api/playlist?id=${encodeURIComponent(value.id)}&source=music`, { signal: options.signal }); const data = await response.json(); if (!response.ok) throw new Error(data.error); return data; })()
+    : await readPlaylistWithFallback(value.id ?? value.playlistId, { container: $('#playlist-preview'), ...options });
+  if (options.signal?.aborted) throw new DOMException('Playlist import cancelled', 'AbortError');
+  const result = appendPlaylistTracks([], source.ids ?? source.tracks.map(track => track.id));
+  if (!result.added.length) throw new Error('No available songs were found. Your previous queue is unchanged.');
+  const metadata = new Map((source.tracks ?? []).map(track => [track.id, track]));
+  for (const track of result.added) {
+    const data = metadata.get(track.id);
+    if (typeof data?.title === 'string') track.title = data.title.slice(0, 300);
+    if (Number.isFinite(data?.duration)) track.duration = clamp(data.duration, 0, 604800);
+  }
+  stop(); state.playlist = result.added; state.selectedId = result.added[0].id;
+  selectTrack(state.selectedId, autoplay); persist();
+  void fillTrackTitles(result.added.filter(track => !metadata.has(track.id)));
+  return { partial: source.partial || result.overflow > 0, count: result.added.length };
+}
+
 $('#add-form').onsubmit = async event => {
   event.preventDefault();
   if (playlistImport) return;
@@ -418,31 +443,18 @@ $('#add-form').onsubmit = async event => {
   catch (error) { $('#add-error').textContent = error.message; $('#add-error').hidden = false; return; }
   const wholePlaylist = parsed.type === 'playlist' && (!parsed.video || $('#include-playlist').checked);
   if (wholePlaylist) {
-    if (state.playlist.length >= 500) { $('#add-error').textContent = 'Your playlist is full (500 tracks). Remove a track first.'; $('#add-error').hidden = false; return; }
     const controller = new AbortController();
     playlistImport = controller;
     $('#add-error').hidden = true;
     setAddBusy(true);
     try {
-      const source = await readPlaylistWithFallback(parsed.playlistId, {
-        container: $('#playlist-preview'), signal: controller.signal,
+      const result = await openOnlinePlaylist(parsed, false, {
+        signal: controller.signal,
         onFallback: () => { $('#playlist-preview').hidden = true; $('#add-status').textContent = 'Reading the public playlist listing…'; },
       });
       if (controller.signal.aborted || !$('#add-dialog').open) return;
-      const result = appendPlaylistTracks(state.playlist, source.ids);
-      const titles = new Map(source.tracks.map(track => [track.id, track.title]));
-      for (const track of result.added) {
-        const title = titles.get(track.id);
-        if (typeof title === 'string') track.title = title.slice(0, 300);
-      }
-      state.playlist.push(...result.added);
-      if (!state.selectedId && result.added.length) selectTrack(result.added[0].id);
-      else { renderPlaylist(); persist(); }
       $('#add-dialog').close(); $('#add-form').reset();
-      const details = [result.duplicates ? `${result.duplicates} already queued` : '', result.overflow ? `${result.overflow} skipped at the 500-track limit` : ''].filter(Boolean);
-      if (source.partial) details.push('YouTube’s public listing exposes only the first page of this playlist');
-      notify(`${result.added.length ? `Added ${result.added.length} videos.` : 'This playlist is already queued.'}${details.length ? ` ${details.join('; ')}.` : ''}`);
-      void fillTrackTitles(result.added.filter(track => !titles.has(track.id)));
+      notify(`Opened ${result.count} songs.${result.partial ? ' Loaded the available portion of this playlist.' : ''}`);
     } catch (error) {
       if (error.name !== 'AbortError' && $('#add-dialog').open) { $('#add-error').textContent = error.message; $('#add-error').hidden = false; }
     } finally {
@@ -490,7 +502,7 @@ $('#playlist-file').onchange = async event => {
     if (file.size > 1048576) throw new Error('Playlist files must be smaller than 1 MB.');
     const data = JSON.parse(await file.text());
     if (data.version !== 1 || !Array.isArray(data.tracks) || data.tracks.length > 500 || data.tracks.some(track => !track || !/^[\w-]{11}$/.test(track.id))) throw new Error('Use a Yinamp playlist JSON file with up to 500 valid videos.');
-    const imported = initialState({ playlist: data.tracks });
+    const imported = initialState({ version: 2, playlist: data.tracks });
     resetEmbedFailures(imported.playlist);
     stop(); state.playlist = imported.playlist; state.selectedId = imported.selectedId;
     if (currentTrack()) selectTrack(state.selectedId);
