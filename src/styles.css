@@ -88,9 +88,8 @@ input[type=range]{width:100%;height:14px;accent-color:var(--accent);margin:0;cur
 .library-tabs .search-tab.active .search-tab-pin{background:var(--screen);color:var(--accent)}
 .search-tab-pin{opacity:0;transition:opacity .16s ease}.search-tab:hover .search-tab-pin,.search-tab:focus-within .search-tab-pin{opacity:1}
 .search-tab.pinned .search-tab-pin{opacity:1}
-.search-tools{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}.search-tools[hidden],.search-more[hidden]{display:none}
-.search-tools button,.song-actions button{background:var(--screen);color:var(--text);border:1px solid var(--edge);padding:5px 7px;font:10px var(--mono);cursor:pointer}
-.search-tools button[aria-pressed=true]{color:var(--accent);border-color:var(--accent)}
+.search-more[hidden]{display:none}
+.song-actions button{background:var(--screen);color:var(--text);border:1px solid var(--edge);padding:5px 7px;font:10px var(--mono);cursor:pointer}
 .song-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:center}.search-more{display:block;margin:10px auto}
 .library-summary #library-caption{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 @media(hover:none){.search-tab-pin{opacity:1}}
@@ -118,3 +117,5 @@ input[type=range]{width:100%;height:14px;accent-color:var(--accent);margin:0;cur
 #search-mismatch[hidden]{display:none}.mismatch-dot{width:5px;height:5px;border-radius:50%;background:#ff5353;box-shadow:0 0 5px #ff5353;animation:mismatch-flash .65s steps(2,end) infinite}
 @keyframes mismatch-flash{50%{opacity:.25}}
 @media(prefers-reduced-motion:reduce){.mismatch-dot{animation:none}}
+
+.search-result-kind{font:8px var(--mono);color:var(--accent);opacity:.7}.library-card.top-result{border-color:color-mix(in srgb,var(--accent) 45%,var(--edge))}

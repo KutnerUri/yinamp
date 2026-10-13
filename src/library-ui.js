@@ -1,3 +1,4 @@
+import { musicResultURL } from './search-all-data.js';
 import { libraryAccountIdentity, libraryAccountChanged } from './library-account.js';
 import { createLoader, createLibrarySkeleton } from './loading-ui.js';
 import { PlaylistCache } from './playlist-cache.js';
@@ -7,6 +8,8 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
   const desktop = Boolean(window.yinampDesktop);
   let section = desktop ? 'mine' : 'discover', request = 0, opening = null, loading = false, selected = activePlaylist, signature, visibleData = null;
   const cache = new PlaylistCache();
+  const searchSession = crypto.randomUUID();
+  let activeSearch = null;
   const searches = new Map(), views = new Map();
   let serial = 0;
   // Persist only pinned search definitions; results and view state stay in memory.
@@ -14,7 +17,7 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
   try {
     const saved = desktop ? pinnedSearches : JSON.parse(localStorage.getItem(pinsKey) || '[]');
     if (Array.isArray(saved)) for (const value of saved) {
-      if (typeof value?.query === 'string' && value.query.trim() && value.query.length <= 200 && ['playlists', 'songs'].includes(value.type)) addSearch(value.query, true, value.type);
+      if (typeof value?.query === 'string' && value.query.trim() && value.query.length <= 200 && ['all', 'playlists', 'songs'].includes(value.type)) addSearch(value.query, true, 'all');
     }
   } catch {}
   function savePins() {
@@ -22,7 +25,7 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
     if (desktop) onPinsChanged?.(pins);
     else try { localStorage.setItem(pinsKey, JSON.stringify(pins)); } catch {}
   }
-  function addSearch(query, pinned = false, type = 'playlists') {
+  function addSearch(query, pinned = false, type = 'all') {
     const id = `search-${++serial}`, tab = { query, pinned, type, pages: 1 };
     searches.set(id, tab);
     const wrapper = document.createElement('span'); wrapper.className = 'search-tab';
@@ -35,12 +38,6 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
     close.onclick = () => { const active = section === id; searches.delete(id); views.delete(id); wrapper.remove(); savePins(); if (active) select(desktop ? 'mine' : 'discover'); onLayout(); };
     wrapper.append(button, pin, close); $('.library-tabs').append(wrapper); return id;
   }
-  const tools = document.createElement('div'); tools.className = 'search-tools'; tools.hidden = true;
-  for (const type of ['playlists', 'songs']) {
-    const button = document.createElement('button'); button.type = 'button'; button.textContent = type.toUpperCase(); button.dataset.searchType = type;
-    button.onclick = () => { const tab = searches.get(section); if (!tab || tab.type === type) return; tab.type = type; savePins(); tab.pages = 1; visibleData = null; void load(); }; tools.append(button);
-  }
-  $('.library-summary').before(tools);
   const more = document.createElement('button'); more.type = 'button'; more.className = 'metal small-button search-more'; more.textContent = 'LOAD MORE'; more.hidden = true;
   more.onclick = () => { const tab = searches.get(section); if (tab && tab.pages < 10) { tab.pages++; void load(); } }; $('#library-results').after(more);
 
@@ -65,22 +62,23 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
   }
   function render() {
     const tab = searches.get(section);
-    tools.hidden = !tab; for (const button of tools.querySelectorAll('[data-search-type]')) button.setAttribute('aria-pressed', String(button.dataset.searchType === tab?.type));
     more.hidden = !tab || !visibleData?.partial || tab.pages >= 10; more.disabled = loading;
     const clear = $('#library-filter-clear'); if (clear) clear.hidden = !$('#library-filter').value;
     const data = visibleData, filter = $('#library-filter').value.trim().toLocaleLowerCase();
     const items = (data?.items ?? []).filter(item => `${item.title} ${item.subtitle ?? ''}`.toLocaleLowerCase().includes(filter));
     const root = $('#library-results'), scroll = root.scrollTop; root.replaceChildren();
-    $('#library-count').textContent = data ? `${items.length} ${tab?.type === 'songs' ? items.length === 1 ? 'SONG' : 'SONGS' : items.length === 1 ? 'PLAYLIST' : 'PLAYLISTS'}${data.partial ? ' · LOADED SO FAR' : ''}` : '';
+    $('#library-count').textContent = data ? `${items.length} ${tab ? items.length===1?'RESULT':'RESULTS' : items.length === 1 ? 'PLAYLIST' : 'PLAYLISTS'}${data.partial ? ' · LOADED SO FAR' : ''}` : '';
     for (const item of items) {
       const button = document.createElement('button'); button.type = 'button'; button.dataset.playlistId = item.id; button.className = `library-card${selected?.id === item.id ? ' selected' : ''}`; button.disabled = Boolean(opening); button.classList.toggle('opening', opening === item.id); button.setAttribute('aria-busy', String(opening === item.id)); if (selected?.id === item.id) button.setAttribute('aria-current', 'true'); button.setAttribute('aria-label', `Play ${item.title}`);
+      if(item.topResult)button.classList.add('top-result');
       const art = document.createElement('span'); art.className = 'library-art'; art.textContent = '♪';
       if (item.thumbnail) { const image = document.createElement('img'); image.src = item.thumbnail; image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; image.onerror = () => { image.remove(); art.textContent = '♪'; }; art.replaceChildren(image); }
       const copy = document.createElement('span'); copy.className = 'library-card-copy';
       const title = document.createElement('span'); title.className = 'library-card-title'; title.textContent = item.title; title.title = item.title;
-      const subtitle = document.createElement('span'); subtitle.className = 'library-card-subtitle'; subtitle.textContent = item.subtitle || (item.kind === 'song' ? '' : item.kind === 'mix' ? 'YouTube Mix' : 'Music playlist'); subtitle.title = subtitle.textContent;
+      const subtitle = document.createElement('span'); subtitle.className = 'library-card-subtitle'; subtitle.textContent = item.subtitle || (['song','video','artist','album','profile'].includes(item.kind) ? '' : item.kind === 'mix' ? 'YouTube Mix' : 'Music playlist'); subtitle.title = subtitle.textContent;
       const play = document.createElement('span'); play.className = 'library-play'; play.textContent = selected?.id === item.id ? '✓ IN QUEUE' : '▶ PLAY';
       if (opening === item.id) { play.replaceChildren(createLoader(), document.createTextNode('OPENING…')); }
+      if(tab){const kind=document.createElement('span');kind.className='search-result-kind';kind.textContent=`${item.topResult?'TOP RESULT · ':''}${item.kind.toUpperCase()}`;copy.append(kind);}
       copy.append(title, subtitle, play); button.append(art, copy);
       button.onclick = async () => {
         if (opening) return;
@@ -89,12 +87,12 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
         catch (error) { if (openingRequest === request) message(cleanError(error), true); }
         finally { if (opening === item.id) { opening = null; updateCards(); } }
       };
-      if (item.kind === 'song') {
-        const card = document.createElement('div'); card.className = 'library-card song-card';
+      if (['song','video','artist','album','profile'].includes(item.kind)) {
+        const card = document.createElement('div'); card.className = `library-card song-card${item.topResult?' top-result':''}`;
         const actions = document.createElement('span'); actions.className = 'song-actions';
-        for (const [label, autoplay] of [['▶ PLAY NOW', true], ['+ QUEUE', false]]) {
-          const action = document.createElement('button'); action.type = 'button'; action.textContent = label; action.setAttribute('aria-label', `${autoplay ? 'Play' : 'Add to queue'} ${item.title}`);
-          action.disabled = Boolean(opening); action.onclick = () => { if (opening) return; try { onSong(item, autoplay); message(`${autoplay ? 'Playing' : 'Queued'} ${item.title}.`); } catch (error) { message(cleanError(error), true); } }; actions.append(action);
+        for (const [label, autoplay] of (['song','video'].includes(item.kind) ? [['▶ PLAY NOW', true], ['+ QUEUE', false]] : [['OPEN IN YOUTUBE MUSIC', null]])) {
+          const action = document.createElement('button'); action.type = 'button'; action.textContent = label; action.setAttribute('aria-label', `${autoplay===null?'Open in YouTube Music':autoplay ? 'Play' : 'Add to queue'} ${item.title}`);
+          action.disabled = Boolean(opening); action.onclick = () => { if (opening) return; try { if(autoplay===null){const url=musicResultURL(item);if(desktop)void window.yinampDesktop.openMusicResult(item).catch(error=>message(cleanError(error),true));else window.open(url,'_blank','noopener');return;} onSong(item, autoplay); message(`${autoplay ? 'Playing' : 'Queued'} ${item.title}.`); } catch (error) { message(cleanError(error), true); } }; actions.append(action);
         }
         play.remove(); copy.append(actions); card.append(art, copy); root.append(card);
       } else root.append(button);
@@ -108,6 +106,7 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
     if (refresh) cache.clear();
     const version = ++request, tab = section, search = searches.get(tab);
     const key = search ? JSON.stringify([search.query, search.type, search.pages]) : tab;
+    activeSearch = search ? { id: `${searchSession}:${version}`, version, tab, query: search.query, type: search.type, pages: search.pages } : null;
     loading = true; $('#library-panel').classList.add('library-loading'); $('#library-refresh').disabled = true; render();
     $('#library-results').setAttribute('aria-busy', 'true'); $('#library-sign-in').hidden = true;
     message(search ? `Searching YouTube Music for ${search.query}…` : tab === 'mine' ? 'Loading your playlists…' : tab === 'mixes' ? 'Loading your mixes…' : 'Finding music playlists…');
@@ -115,7 +114,7 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
       let data = !refresh && cache.get(key);
       if (!data) {
         if (search) {
-          if (desktop) data = await window.yinampDesktop.library({ action: 'search', query: search.query, type: search.type, pages: search.pages, refresh });
+          if (desktop) data = await window.yinampDesktop.library({ action: 'search', query: search.query, type: search.type, pages: search.pages, refresh, requestId: activeSearch.id });
           else { const response = await fetch(`/api/search?q=${encodeURIComponent(search.query)}&type=${search.type}&pages=${search.pages}${refresh ? '&refresh=1' : ''}`); data = await response.json(); if (!response.ok) throw new Error(data.error); }
         } else if (desktop) {
           if (typeof window.yinampDesktop.library !== 'function') throw new Error('Restart Yinamp to load your music library.');
@@ -125,18 +124,22 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
           if (!response.ok) throw new Error(data.error);
         }
         if (version !== request) return;
-        cache.set(key, data);
+        if (!data.failedCategories?.length) cache.set(key, data);
       }
       if (version !== request) return;
       visibleData = data; loading = false;
-      message(search ? data.partial ? search.pages >= 10 ? 'Showing the first 10 pages per source.' : 'More results are available below.' : 'Search complete.' : data.ownerFilterUnavailable ? 'Your channel identity could not be verified, so owner filtering was not applied. Refresh to retry.' : data.partial ? 'Showing the available portion of this collection. Refresh to retry loading more.' : 'Choose a playlist to replace the queue and start listening.');
+      if (search) {
+        const warning = data.failedCategories?.length ? 'Some playlist sources could not load. Refresh to retry.' : data.unavailableCategories?.length ? 'Showing the sources available for this search.' : '';
+        message(warning || (data.partial ? search.pages >= 10 ? 'Showing the first 10 pages per source.' : 'More results are available below.' : 'Search complete.'), Boolean(data.failedCategories?.length));
+      } else message(data.ownerFilterUnavailable ? 'Your channel identity could not be verified, so owner filtering was not applied. Refresh to retry.' : data.partial ? 'Showing the available portion of this collection. Refresh to retry loading more.' : 'Choose a playlist to replace the queue and start listening.');
+
     } catch (error) {
       if (version !== request) return;
       loading = false;
       if (error.code === 'LIBRARY_CANCELLED') { message(''); return; }
       const text = cleanError(error); message(text, true); $('#library-sign-in').hidden = !desktop || !/sign in/i.test(text);
     } finally {
-      if (version === request) { loading = false; $('#library-panel').classList.remove('library-loading'); $('#library-refresh').disabled = false; $('#library-results').setAttribute('aria-busy', 'false'); render(); }
+      if (version === request) { activeSearch = null; loading = false; $('#library-panel').classList.remove('library-loading'); $('#library-refresh').disabled = false; $('#library-results').setAttribute('aria-busy', 'false'); render(); }
     }
   }
   function select(tab) {
@@ -200,6 +203,12 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
     const button = event.target.closest('[data-library-tab]'); if (!button || !searches.has(button.dataset.libraryTab) || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     const tabs = [...document.querySelectorAll('[data-library-tab]')].filter(item => !item.disabled); const i = tabs.indexOf(button);
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (i + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; event.preventDefault(); tabs[next].focus(); select(tabs[next].dataset.libraryTab);
+  });
+  window.yinampDesktop?.onSearchResults?.(data => {
+    const current = activeSearch;
+    if(!current || current.version !== request || current.tab !== section || !searches.has(current.tab) || data.requestId !== current.id || data.query !== current.query || data.type !== current.type || data.pages !== current.pages || !Array.isArray(data.items))return;
+    visibleData = {items:data.items,partial:data.partial};render();
+    message(`${data.items.length} results · Searching…`);
   });
   $('#library-sign-in').onclick = onSignIn;
   select(section);

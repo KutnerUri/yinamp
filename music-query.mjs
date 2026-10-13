@@ -1,3 +1,5 @@
+import { parseMixedMusicSearch } from './src/search-all-data.js';
+import { checkSearchItems } from './src/search-schema.js';
 import { musicPageData } from './music-library.mjs';
 import { musicSongItems, parseMusicLibrary } from './src/library-data.js';
 
@@ -91,18 +93,18 @@ export async function discoverMusicPlaylists(options = {}) {
   return { items: [...items.values()], partial: community.partial || featured.partial };
 }
 
-export async function searchMusic({ query, type = 'playlists', pages = 1, fetcher = fetch, signal } = {}) {
-  if (typeof query !== 'string' || !query.trim() || query.length > 200 || !['songs', 'playlists'].includes(type) || !Number.isInteger(pages) || pages < 1 || pages > 10) throw new Error('Invalid search options.');
+export async function searchMusic({ query, type = 'all', pages = 1, fetcher = fetch, signal } = {}) {
+  if (typeof query !== 'string' || !query.trim() || query.length > 200 || !['all', 'songs', 'playlists'].includes(type) || !Number.isInteger(pages) || pages < 1 || pages > 10) throw new Error('Invalid search options.');
   if (type === 'playlists') return discoverMusicPlaylists({ query, fetcher, signal, maxPages: pages, limit: 500 });
   const url = new URL(`${origin}/search`); url.searchParams.set('q', query); url.searchParams.set('hl', 'en');
   const response = await fetcher(url, { signal: signal ?? AbortSignal.timeout(10000), headers: { 'User-Agent': agent } });
   if (!response.ok) throw new Error('Search could not load.');
   const configuration = musicSearchConfiguration(await response.text());
-  if (!configuration.filters.songs) throw new Error('YouTube Music did not provide Songs search.');
+  if (type === 'songs' && !configuration.filters.songs) throw new Error('YouTube Music did not provide Songs search.');
   const items = new Map(), seen = new Set(); let continuation;
   for (let page = 0; page < pages; page++) {
-    const data = await requestMusicPage({ fetcher, signal, clientVersion: configuration.clientVersion, ...(continuation ? { continuation } : { query, params: configuration.filters.songs }) });
-    for (const item of musicSongItems(data)) items.set(item.id, item);
+    const data = await requestMusicPage({ fetcher, signal, clientVersion: configuration.clientVersion, ...(continuation ? { continuation } : { query, ...(type==='songs'?{params:configuration.filters.songs}:{}) }) });
+    for (const item of (type==='all'?checkSearchItems(parseMixedMusicSearch(data),'all').items:musicSongItems(data))) items.set(type==='all'?item.kind+':'+item.id:item.id,item);
     const tokens = musicContinuations(data); continuation = tokens.find(token => !seen.has(token));
     if (!continuation) break; seen.add(continuation);
   }

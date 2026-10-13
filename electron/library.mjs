@@ -1,5 +1,5 @@
 import { createSearchWindow } from './search-window.mjs';
-import { collectMusicSearch } from './music-search.mjs';
+import { collectUnfilteredSearch } from './search-all.mjs';
 import { libraryCancelled } from './library-errors.mjs';
 import { cleanVersions } from '../src/track-versions.js';
 import { BrowserWindow, WebContentsView, session } from 'electron';
@@ -9,6 +9,7 @@ import { parsePlaylistTracks, musicLibraryURL, playlistURL, withoutOwnedPlaylist
 import { discoverMusicPlaylists } from '../music-query.mjs';
 import { currentMusicOwner } from './music-owner.mjs';
 import { collectMusicCatalog } from './music-catalog.mjs';
+import { collectSearchSources } from './search-results.mjs';
 import { PlaylistCache } from '../src/playlist-cache.js';
 
 function readRenderedPlaylist(parse) {
@@ -26,12 +27,12 @@ const scrollScript = `(()=>{window.scrollTo(0,document.documentElement.scrollHei
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const signInError = () => Object.assign(new Error('Sign in to YouTube Music to browse your playlists and mixes.'), { code: 'SIGN_IN_REQUIRED' });
 
-export function createMusicLibrary({ onIdentity = () => {}, onMismatch = () => {} } = {}) {
+export function createMusicLibrary({ onIdentity = () => {}, onMismatch = () => {}, onFailure = () => {} } = {}) {
   let work = Promise.resolve(), active, generation = 0;
   const cache = new PlaylistCache();
   const fetcher = (url, options) => session.fromPartition(YOUTUBE_PARTITION).fetch(url, options);
 
-  const searchWindow = createSearchWindow({ collect: (...args) => collectMusicSearch(...args, onMismatch), createWindow: () => {
+  const searchWindow = createSearchWindow({ onFailure, collect: (contents, query, category, pages, isCurrent, onPage) => collectUnfilteredSearch(contents, query, category, pages, isCurrent, onMismatch, onPage), createWindow: () => {
     const probe = new BrowserWindow({ show: false, width: 1100, height: 850, webPreferences: { partition: YOUTUBE_PARTITION, nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
     probe.webContents.setAudioMuted(true);
     probe.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -40,18 +41,13 @@ export function createMusicLibrary({ onIdentity = () => {}, onMismatch = () => {
     return probe;
   } });
   function invalidate() { generation++; cache.clear(); searchWindow.dispose(); active?.webContents?.stop(); }
-  async function page(url, script, key, search) {
+  async function page(url, script, key) {
     const target = new URL(url);
     const version = generation;
     const task = async () => {
       if (version !== generation) throw libraryCancelled();
       const cached = cache.get(key);
       if (cached) return cached;
-      if (search) {
-        const result = await searchWindow.run(search, () => version === generation);
-        if (version !== generation) throw libraryCancelled();
-        cache.set(key, result); return result;
-      }
       const options = { partition: YOUTUBE_PARTITION, nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false };
       const probe = ['mine', 'mixes', 'home'].includes(key)
         ? new BrowserWindow({ show: false, width: 1100, height: 850, webPreferences: options })
@@ -132,20 +128,25 @@ export function createMusicLibrary({ onIdentity = () => {}, onMismatch = () => {
   }
   return {
     invalidate,
-    async search(query, type = 'playlists', pages = 1, refresh = false) {
+    async search(query, type = 'all', pages = 1, refresh = false, onResults = () => {}) {
       if (typeof query !== 'string' || !query.trim() || query.length > 200) throw new Error('Enter a search of up to 200 characters.');
-      if (!['songs', 'playlists'].includes(type) || !Number.isInteger(pages) || pages < 1 || pages > 10) throw new Error('Invalid search options.');
+      if (!['all', 'songs', 'playlists'].includes(type) || !Number.isInteger(pages) || pages < 1 || pages > 10) throw new Error('Invalid search options.');
       const version = generation;
-      if (refresh) cache.clear();
-      const categories = type === 'songs' ? ['songs'] : ['community', 'featured'];
-      const items = new Map(); let partial = false;
-      for (const category of categories) {
-        const result = await page('https://music.youtube.com/search', null, `search:${JSON.stringify([query.trim(), category, pages])}`, { query: query.trim(), category, pages });
+      const task = async () => {
         if (version !== generation) throw libraryCancelled();
-        for (const item of result.items) if (!items.has(item.id)) items.set(item.id, item);
-        partial ||= result.partial;
-      }
-      return { items: [...items.values()], partial };
+        if (refresh) cache.clear();
+        const categories = ['all'];
+        return collectSearchSources({ categories, isCurrent: () => version === generation, onResults,
+          load: async (category, onPage) => {
+            const key = `search:${JSON.stringify([query.trim(), category, pages])}`;
+            const result = cache.get(key) ?? await searchWindow.run({query:query.trim(),category,pages,onPage},()=>version===generation);
+            if(version!==generation)throw libraryCancelled();
+            cache.set(key,result);return result;
+          },
+        });
+      };
+      work = work.catch(()=>{}).then(task);
+      return work;
     },
     async browse(section, refresh = false) {
       const url = musicLibraryURL(section);

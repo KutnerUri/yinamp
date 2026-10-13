@@ -79,7 +79,7 @@ export function validateSkin(value) {
 export function initialState(saved) {
   const state = { equalizer: normalizeEqualizer(saved?.equalizer), version: 2, playlist: [], pinnedSearches: [], activePlaylist: null, selectedId: null, volume: 75, muted: false, shuffle: false, repeat: 'off', skin: structuredClone(SKINS.classic), visibility: { eq: true, playlist: true }, layout: {} };
   if (!saved || typeof saved !== 'object') return state;
-  if (Array.isArray(saved.pinnedSearches)) state.pinnedSearches = saved.pinnedSearches.filter(pin => typeof pin?.query === 'string' && pin.query.trim() && pin.query.length <= 200 && ['songs', 'playlists'].includes(pin.type)).slice(0, 200).map(({ query, type }) => ({ query: query.trim(), type }));
+  if (Array.isArray(saved.pinnedSearches)) state.pinnedSearches = saved.pinnedSearches.filter(pin => typeof pin?.query === 'string' && pin.query.trim() && pin.query.length <= 200 && ['all', 'songs', 'playlists'].includes(pin.type)).slice(0, 200).map(({ query, type }) => ({ query: query.trim(), type: 'all' }));
   if (Array.isArray(saved.playlist)) {
     const seen = new Set();
     // Older installations seeded exactly these three tracks at the front.

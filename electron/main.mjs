@@ -11,6 +11,7 @@ import { YOUTUBE_PARTITION, INTERFACE_PARTITION, accountURL, isAccountURL, watch
 import { snapshotScript, commandScript, playerLayoutCSS, didProviderAdvance } from './page-scripts.mjs';
 import { installSpectrumScript, readSpectrumScript, spectrumVolumeCSS } from './audio-spectrum.mjs';
 import { accountSnapshot, accountState, accountStatusScript, isAccountStatusPage, navigationDetails, shouldCompleteChannelSwitch } from './account.mjs';
+import { musicResultURL } from '../src/search-all-data.js';
 import { writeSearchMismatch } from './search-mismatch-log.mjs';
 import { createMusicLibrary } from './library.mjs';
 import { settleLibraryRequest } from './library-errors.mjs';
@@ -39,7 +40,7 @@ let accountPoll, accountReading = false, accountVersion = 0, loginIssue = '';
 let accountClosing = false, channelSwitch = null, accountRevision = 0, authoritativeAccount = false;
 let playerAccount = accountSnapshot({ status: 'checking' });
 let windowAccount = accountSnapshot(null), publishedAccount = '';
-const library = createMusicLibrary({ onMismatch: issue => { const logged = writeSearchMismatch(join(app.getPath('userData'), 'yinamp-search-mismatches.jsonl'), issue); send({ type: 'search-mismatch', data: { logged } }); }, onIdentity: identity => { if (!accountRequested && !accountClosing && !authoritativeAccount && identity.status === 'signed-in') { windowAccount = identity; publishAccount(); } } });
+const library = createMusicLibrary({ onFailure: details => diagnostic('search-retry', details), onMismatch: issue => { const logged = writeSearchMismatch(join(app.getPath('userData'), 'yinamp-search-mismatches.jsonl'), issue); send({ type: 'search-mismatch', data: { logged } }); }, onIdentity: identity => { if (!accountRequested && !accountClosing && !authoritativeAccount && identity.status === 'signed-in') { windowAccount = identity; publishAccount(); } } });
 function diagnostic(event, details = {}) {
   if (!diagnosticPath) return;
   try {
@@ -415,10 +416,17 @@ async function start() {
     if (action === 'sign-out') return signOutAccount();
     return openAccount(action);
   });
+  ipcMain.handle('yinamp:open-music-result', async (event, item) => { trusted(event); await external(musicResultURL(item)); });
   ipcMain.handle('yinamp:library', async (event, value) => {
     trusted(event);
     return settleLibraryRequest(() => {
-      if (value?.action === 'search') return library.search(value.query, value.type, value.pages ?? 1, value.refresh === true);
+      if (value?.action === 'search') {
+        const requestId = typeof value.requestId === 'string' && value.requestId.length <= 100 ? value.requestId : null;
+        return library.search(value.query, value.type, value.pages ?? 1, value.refresh === true, data => {
+          if (!requestId || event.sender.isDestroyed()) return;
+          try { event.sender.send('yinamp:search-results', { requestId, query: value.query, type: value.type, pages: value.pages ?? 1, ...data }); } catch {}
+        });
+      }
       if (value?.action === 'browse') return library.browse(value.section, value.refresh === true);
       if (value?.action === 'versions') return library.versions(value.id);
       if (value?.action === 'playlist') return library.playlist(value.playlist);

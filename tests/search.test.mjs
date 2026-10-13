@@ -24,5 +24,5 @@ test('autocomplete is bounded public text and rejects short queries without requ
 test('desktop settings retain only pinned query definitions across normalization', async()=>{
  const {initialState}=await import('../src/core.js');
  const state=initialState({pinnedSearches:[{query:' Artist ',type:'songs',results:[{id:'secret'}],scroll:100,filter:'x'}, {query:'',type:'songs'}, {query:'x',type:'episodes'}]});
- assert.deepEqual(initialState(JSON.parse(JSON.stringify(state))).pinnedSearches,[{query:'Artist',type:'songs'}]);
+ assert.deepEqual(initialState(JSON.parse(JSON.stringify(state))).pinnedSearches,[{query:'Artist',type:'all'}]);
 });

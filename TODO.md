@@ -311,7 +311,7 @@ lack a creator ID and remain visible under the owner-only rule.
 - [x] Bound each attempt to 25 seconds, validate query/category, discard crashed/unresponsive windows (including idle failures), and retry once on a fresh window. Report a second failure; cancel on account invalidation and clean up on shutdown.
 - [x] Pass 105 regression tests, including silent stalls, renderer failures, idle failure and account cancellation. Live anonymous reuse/crash recovery evidence is recorded in `SEARCH.md`.
 - [x] User described current search speed as reasonably fast; confirmed the artwork fix in the next milestone.
-- [ ] Implement internal search navigation after a separate approval; new queries still perform full page loads in the reused window. Direct-API transport remains a separate proposal.
+- [x] User approved internal search navigation after committing the preceding milestone; new queries now use the loaded search component. Direct-API transport remains a separate proposal.
 
 ### Search response schema and artwork — artwork reviewed; ready for user commit
 
@@ -322,3 +322,53 @@ lack a creator ID and remain visible under the owner-only rule.
 - [x] Pass 109 regression tests, controlled indicator/interface checks and live anonymous artwork/source checks; evidence in `SEARCH.md`.
 - [x] User confirmed artwork appears in search results and requested commit preparation. The mismatch indicator has controlled verification; no live provider mismatch was deliberately induced in the user’s session.
 - [ ] User commit checkpoint. Internal navigation remains a separate search-speed milestone.
+
+### Internal search navigation — implemented; behavior review pending
+
+- [x] Use the loaded Music search component for new queries; full loads are reserved for startup/recovery.
+- [x] Verify requested URL and query-specific category commands before accepting results; bound stalled transitions and recover once on a fresh window when controls fail.
+- [x] Pass 114 regression tests and live checks for retained document/zero full reloads, category changes, artwork loading, changed-control recovery, renderer-crash recovery and invalidation. See `SEARCH.md`.
+- [ ] User behavior review and commit checkpoint.
+
+### Search latency investigation — measured; implementation recommendation pending
+
+- [x] User authorized measurement of remaining search latency, with searches kept sequential.
+- [x] Measure general navigation, category requests, settling and parsing. Find compressed request bodies missed by production matching and automatic continuation prefetch extending waits.
+- [x] Validate a QA-only requested-page completion experiment: warm Songs 1.44–1.47 s; combined Playlists 1.95–2.02 s, versus baseline 1.74–1.84 s and 2.74–2.97 s. No production change.
+- [x] User approved compressed matching, requested-page completion and incremental display. Preserve schema checks, partial labeling, cache fallback, scoped continuation identity and silent-failure recovery. See `SEARCH-PERFORMANCE.md`.
+- [ ] Re-measure before pursuing direct typed navigation or progressive sequential playlist display.
+
+### Incremental search results and requested-page completion — review pending
+
+- [x] Decode bounded compressed request fields; match current query/category and returned continuation tokens.
+- [x] Publish validated desktop pages immediately, merge source snapshots by ID and finish at the requested page count without waiting for unsolicited prefetch.
+- [x] Guard updates by request/tab/query/type/page count/generation; ignore obsolete/late updates and preserve streamed results after a later-source error.
+- [x] Serialize complete desktop search operations and public API search requests; no parallel logical queries.
+- [x] Pass 117 regression tests and controlled incremental/stale/error interface checks; live first-result/final timing, artwork and recovery evidence in `SEARCH.md`.
+- [ ] User behavior review and commit checkpoint.
+
+### Search completion repair — reviewed; ready for user commit
+
+- [x] Reproduce `arguably`: 20 Community results, Featured absent from the provider's query-matched controls, repeated unnecessary window recovery.
+- [x] Treat an omitted source as unavailable; centralize sequential source merging and completed/partial/error outcomes. Preserve usable results on later-source failure and avoid caching a failed combined result.
+- [x] Support explicit empty cached views and retain safe retry reason codes/underlying causes in diagnostics.
+- [x] Pass 124 tests, controlled streaming/error checks and a real isolated desktop UI check: 20 `arguably` cards, loading cleared, Refresh enabled; a no-result query terminates.
+- [x] User reports the completion repair seems good; songs feel fast, playlist speed remains a concern.
+- [ ] User commit checkpoint. Unfiltered results are investigated as a separate milestone.
+
+### Unfiltered search — investigation complete; implemented below
+
+- [x] User requested investigating native unfiltered ordering with optional later/local filters instead of prioritizing category facets.
+- [x] Observe two sequential anonymous runs: unfiltered responses 0.67–1.28 s, mixed ordered responsive rows and song/artist/album top cards. No production changes.
+- [x] Recommend default All, preserving provider order/top result; optional local filters cover loaded cards only. Existing parsers miss top cards and unsupported types; unfiltered pagination is not yet verified. See `SEARCH-ALL.md`.
+- [x] User approved one unfiltered results view without filters, provider ordering/top cards and Open in YouTube Music actions for artists/albums. Internal catalog browsing remains deferred.
+
+### Unfiltered results without facets — reviewed; ready for user commit
+
+- [x] Make one unfiltered Music overview the search source; preserve provider order and the top card, excluding podcasts/episodes.
+- [x] Remove Songs/Playlists controls. Songs/videos keep queue actions; playlists keep normal opening; artists/albums/profiles open externally in YouTube Music.
+- [x] Migrate old pinned result-type definitions to All while retaining memory-only result contents and sequential requests.
+- [x] Extend schema/top-card checks, streamed/cached fallback, startup sequencing and public browser All search.
+- [x] Pass 128 tests, controlled ordering/actions/pin/narrow checks and live anonymous mixed-result/artwork checks. Warm backend samples: 0.86–0.92 s; see `SEARCH.md`.
+- [x] User reviewed the result, reports search seems pretty fast, and requested commit preparation; speed is not a quantified user benchmark.
+- [ ] User commit checkpoint. Advanced filters and internal artist/album browsing remain deferred.

@@ -7,9 +7,10 @@ export function checkSearchItems(values, category) {
   for (const [index, value] of values.entries()) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) { report(index, 'item', 'object', value); continue; }
     const item = {};
-    if (typeof value.id !== 'string' || !(category === 'songs' ? /^[\w-]{11}$/ : /^[\w-]{2,150}$/).test(value.id)) { report(index, 'id', category === 'songs' ? '11-character video ID' : 'playlist ID', value.id); continue; }
+    if (typeof value.id !== 'string' || !(['song','video'].includes(value.kind) ? /^[\w-]{11}$/ : /^[\w-]{2,150}$/).test(value.id)) { report(index, 'id', ['song','video'].includes(value.kind) ? '11-character video ID' : 'provider browse/playlist ID', value.id); continue; }
     if (typeof value.title !== 'string' || !value.title.trim()) { report(index, 'title', 'nonempty string', value.title); continue; }
-    if (!(category === 'songs' ? value.kind === 'song' : ['playlist','mix'].includes(value.kind))) { report(index, 'kind', category === 'songs' ? 'song' : 'playlist or mix', value.kind); continue; }
+    if (!(category === 'all' ? ['song','video','playlist','artist','album','profile'].includes(value.kind) : category === 'songs' ? value.kind === 'song' : ['playlist','mix'].includes(value.kind))) { report(index, 'kind', category === 'all' ? 'supported Music result type' : category === 'songs' ? 'song' : 'playlist or mix', value.kind); continue; }
+    if(value.topResult===true)item.topResult=true;
     item.id = value.id; item.title = value.title.slice(0, 300); item.kind = value.kind;
     for (const field of ['artist', 'album', 'subtitle', 'source']) if (value[field] !== undefined && value[field] !== null) {
       if (typeof value[field] === 'string') item[field] = value[field].slice(0, 300); else report(index, field, 'string', value[field]);
@@ -41,7 +42,7 @@ export function checkSearchStructure(data) {
       if (!Array.isArray(contents)) issues.push({field:'musicShelfRenderer.contents',expected:'array',actual:typeof contents});
       else for(const entry of contents) if(!entry || typeof entry!=='object' || !['musicResponsiveListItemRenderer','musicTwoRowItemRenderer','continuationItemRenderer'].some(key=>entry[key])) issues.push({field:'musicShelfRenderer.contents[]',expected:'supported result or continuation renderer',actual:'unrecognized entry'});
     }
-    for(const key of ['musicResponsiveListItemRenderer','musicTwoRowItemRenderer']) if(value[key]){
+    for(const key of ['musicResponsiveListItemRenderer','musicTwoRowItemRenderer','musicCardShelfRenderer']) if(value[key]){
       const row=value[key];rows++;
       if(!row || typeof row!=='object'){issues.push({field:key,expected:'object',actual:typeof row});continue;}
       const title=row.title??row.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text;

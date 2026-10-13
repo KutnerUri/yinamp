@@ -1,6 +1,6 @@
 // Keep one search client alive, but never treat a surviving window as proof
 // that its renderer or request is healthy. Every use has its own watchdog.
-export function createSearchWindow({ createWindow, collect, timeout = 25000 }) {
+export function createSearchWindow({ createWindow, collect, timeout = 25000, onFailure = () => {} }) {
   let window;
   function discard(candidate = window) {
     if (!candidate) return;
@@ -20,18 +20,19 @@ export function createSearchWindow({ createWindow, collect, timeout = 25000 }) {
       const candidate = window, contents = candidate.webContents;
       let timer, healthy = true, rejectFailure;
       const failure = new Promise((_resolve, reject) => { rejectFailure = reject; });
-      const fail = () => { healthy = false; rejectFailure(new Error('The search window stopped responding.')); };
+      const fail = (code = 'SEARCH_WINDOW_FAILURE') => { healthy = false; rejectFailure(Object.assign(new Error('The search window stopped responding.'), { code: typeof code === 'string' ? code : 'SEARCH_WINDOW_FAILURE' })); };
       const events = ['render-process-gone', 'unresponsive', 'destroyed'];
       for (const event of events) contents.on(event, fail);
-      timer = setTimeout(fail, timeout);
+      timer = setTimeout(() => fail('SEARCH_WINDOW_TIMEOUT'), timeout);
       try {
-        const result = await Promise.race([collect(contents, search.query, search.category, search.pages, () => healthy && candidate === window && isCurrent()), failure]);
+        const result = await Promise.race([collect(contents, search.query, search.category, search.pages, () => healthy && candidate === window && isCurrent(), search.onPage), failure]);
         if (!healthy || candidate !== window || !isCurrent()) throw new Error('The search request was interrupted.');
         return result;
       } catch (error) {
         healthy = false; discard(candidate);
         if (!isCurrent()) throw Object.assign(new Error('The account changed. Try again.'), { code: 'LIBRARY_CANCELLED' });
-        if (attempt === 1) throw new Error('YouTube Music search could not complete after restarting its window. Try again.');
+        try { onFailure({ category: search.category, attempt: attempt + 1, code: typeof error.code === 'string' && /^SEARCH_[A-Z_]+$/.test(error.code) ? error.code : 'SEARCH_FAILED' }); } catch {}
+        if (attempt === 1) throw Object.assign(new Error('YouTube Music search could not complete after restarting its window. Try again.'), { cause: error, code: error.code ?? 'SEARCH_FAILED' });
       } finally {
         clearTimeout(timer);
         for (const event of events) contents.removeListener(event, fail);

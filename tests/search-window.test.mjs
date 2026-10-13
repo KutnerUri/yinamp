@@ -37,3 +37,9 @@ test('a renderer that fails while idle is replaced before the next search',async
  await owner.run(query,()=>true);windows[0].webContents.emit('render-process-gone');assert.equal(windows[0].isDestroyed(),true);
  await owner.run(query,()=>true);assert.equal(windows.length,2);owner.dispose();
 });
+test('retry reports safe reason codes and retains the underlying cause',async()=>{
+ const failure=Object.assign(Error('original failure'),{code:'SEARCH_RESULTS_TIMEOUT'}), reports=[];
+ const windows=[];
+ const owner=createSearchWindow({createWindow:()=>{const wc=new EventEmitter();let dead=false;wc.isDestroyed=()=>dead;const w={webContents:wc,isDestroyed:()=>dead,destroy:()=>{dead=true;wc.emit('destroyed');}};windows.push(w);return w;},collect:async()=>{throw failure;},onFailure:report=>reports.push(report)});
+ await assert.rejects(owner.run(query,()=>true),error=>error.cause===failure&&error.code==='SEARCH_RESULTS_TIMEOUT');assert.deepEqual(reports.map(r=>r.attempt),[1,2]);assert.ok(reports.every(r=>r.code==='SEARCH_RESULTS_TIMEOUT'));
+});

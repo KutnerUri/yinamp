@@ -14,6 +14,7 @@ const metadataCache = new Map();
 
 export function createAppServer({ fetcher = fetch } = {}) {
   const catalogCache = new PlaylistCache(), playlistCache = new PlaylistCache();
+  let searchWork = Promise.resolve();
   return createServer(async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -37,12 +38,12 @@ export function createAppServer({ fetcher = fetch } = {}) {
         catch { return send(200, '[]'); }
       }
       if (url.pathname === '/api/search') {
-        const query = url.searchParams.get('q'), type = url.searchParams.get('type') || 'playlists', pages = Number(url.searchParams.get('pages') || 1);
-        if (!query?.trim() || query.length > 200 || !['songs', 'playlists'].includes(type) || !Number.isInteger(pages) || pages < 1 || pages > 10) return send(400, JSON.stringify({ error: 'Invalid search options.' }));
+        const query = url.searchParams.get('q'), type = url.searchParams.get('type') || 'all', pages = Number(url.searchParams.get('pages') || 1);
+        if (!query?.trim() || query.length > 200 || !['all', 'songs', 'playlists'].includes(type) || !Number.isInteger(pages) || pages < 1 || pages > 10) return send(400, JSON.stringify({ error: 'Invalid search options.' }));
         try {
           const key = `search:${JSON.stringify([query, type, pages])}`;
           const cached = url.searchParams.get('refresh') !== '1' && catalogCache.get(key);
-          const data = cached || await searchMusic({ query, type, pages, fetcher, signal: AbortSignal.timeout(30000) }); catalogCache.set(key, data);
+          const data = cached || await (searchWork = searchWork.catch(() => {}).then(() => searchMusic({ query, type, pages, fetcher, signal: AbortSignal.timeout(30000) }))); catalogCache.set(key, data);
           return send(200, JSON.stringify(data));
         } catch { return send(502, JSON.stringify({ error: 'YouTube Music search could not load. Try again.' })); }
       }
