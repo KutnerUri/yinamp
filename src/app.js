@@ -1,5 +1,5 @@
 import { cleanVersions, playbackTrack, versionMode, recordingControl } from './track-versions.js';
-import { STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp } from './core.js';
+import { normalizePlaylistIdentity, STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp } from './core.js';
 import { YouTubePlayer } from './youtube.js';
 import { setupVisualizer } from './visualizer.js';
 import { setupEqualizer } from './equalizer.js';
@@ -302,6 +302,19 @@ $('#version-video').onclick = () => {
 };
 
 function renderPlaylist() {
+  if (!state.playlist.length) state.activePlaylist = null;
+  const identity = state.activePlaylist;
+  $('#active-playlist-name').textContent = identity ? identity.title : state.playlist.length ? 'Open a playlist to identify this queue.' : '';
+  $('#active-playlist').hidden = !state.playlist.length;
+  $('#active-playlist').title = identity?.title ?? '';
+  const cover = $('#active-playlist-cover');
+  if (cover.getAttribute('src') !== (identity?.thumbnail ?? null)) {
+    cover.hidden = !identity?.thumbnail;
+    if (identity?.thumbnail) cover.src = identity.thumbnail;
+    else cover.removeAttribute('src');
+  }
+  cover.onerror = () => { cover.hidden = true; };
+  musicLibrary?.setActivePlaylist(identity);
   const list = $('#playlist');
   const focused = document.activeElement;
   const focusedId = focused?.closest('[data-track-id]')?.dataset.trackId;
@@ -513,7 +526,7 @@ $('#account-sign-out').onclick = () => accountAction('sign-out');
 $('#account-refresh').onclick = () => accountAction('refresh');
 $('#account-check').onclick = () => void checkAccount();
 $('#account-diagnostics').onclick = () => accountAction('diagnostics');
-musicLibrary = setupMusicLibrary({ onPlay: item => openOnlinePlaylist(item, true), onSignIn: () => accountAction('library'), onLayout: () => panels.refresh() });
+musicLibrary = setupMusicLibrary({ activePlaylist: state.activePlaylist, onPlay: item => openOnlinePlaylist(item, true), onSignIn: () => accountAction('library'), onLayout: () => panels.refresh() });
 $('#reset-layout').onclick = () => { panels.reset(); notify('Windows arranged.'); };
 $('#compact-main').onclick = () => { const body = $('#main-body'); body.hidden = !body.hidden; $('#compact-main').setAttribute('aria-expanded', String(!body.hidden)); panels.refresh(); };
 $('#fullscreen').onclick = async () => { if (window.yinampDesktop) { player.fullscreen(); return; } try { if (document.fullscreenElement) await document.exitFullscreen(); else await $('#video-viewport').requestFullscreen(); } catch { notify('Use the fullscreen button inside the YouTube video on this browser.'); } };
@@ -591,7 +604,7 @@ async function openOnlinePlaylist(value, autoplay = false, options = {}) {
     const versions = cleanVersions(data?.versions);
     if (Object.keys(versions).length) track.versions = versions;
   }
-  stop(); state.playlist = result.added; ui.selectedId.value = result.added[0].id;
+  stop(); state.activePlaylist = normalizePlaylistIdentity({ ...value, title: value.title || source.title }); state.playlist = result.added; ui.selectedId.value = result.added[0].id;
   renderPlaylist(); selectTrack(ui.selectedId.value, autoplay); persist();
   void fillTrackTitles(result.added.filter(track => !metadata.has(track.id)));
   return { partial: source.partial || result.overflow > 0, count: result.added.length };
@@ -630,6 +643,7 @@ $('#add-form').onsubmit = async event => {
   if (state.playlist.length >= 500) { $('#add-error').textContent = 'Your playlist is full (500 tracks). Remove a track first.'; $('#add-error').hidden = false; return; }
   const title = $('#video-title').value.trim();
   const track = { ...parsed, title: title || `YouTube — ${parsed.id}`, duration: 0 };
+  state.activePlaylist = null;
   state.playlist.push(track);
   const first = !ui.selectedId.value;
   if (first) { renderPlaylist(); selectTrack(track.id); }
@@ -666,7 +680,7 @@ $('#playlist-file').onchange = async event => {
     if (data.version !== 1 || !Array.isArray(data.tracks) || data.tracks.length > 500 || data.tracks.some(track => !track || !/^[\w-]{11}$/.test(track.id))) throw new Error('Use a Yinamp playlist JSON file with up to 500 valid videos.');
     const imported = initialState({ version: 2, playlist: data.tracks });
     resetEmbedFailures(imported.playlist);
-    stop(); state.playlist = imported.playlist; ui.selectedId.value = imported.selectedId;
+    stop(); state.activePlaylist = null; state.playlist = imported.playlist; ui.selectedId.value = imported.selectedId;
     renderPlaylist();
     if (currentTrack()) selectTrack(ui.selectedId.value);
     else { loadRecording(null); void resolveVersions(); ui.playback.value = 'EMPTY'; updateTrack(); renderPlaylist(); persist(); }

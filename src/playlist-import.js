@@ -78,6 +78,6 @@ export async function readPlaylistWithFallback(playlistId, options) {
     if (!response.ok) throw new Error(data.error || 'YouTube’s public playlist listing could not be loaded.');
     const tracks = Array.isArray(data.tracks) ? data.tracks.filter(track => /^[\w-]{11}$/.test(track?.id ?? '')) : [];
     if (!tracks.length) throw new Error('YouTube did not expose any public videos in this playlist.');
-    return { ids: tracks.map(track => track.id), tracks, partial: data.partial === true };
+    return { title: data.title, ids: tracks.map(track => track.id), tracks, partial: data.partial === true };
   }
 }

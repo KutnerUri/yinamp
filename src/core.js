@@ -77,7 +77,7 @@ export function validateSkin(value) {
 }
 
 export function initialState(saved) {
-  const state = { equalizer: normalizeEqualizer(saved?.equalizer), version: 2, playlist: [], selectedId: null, volume: 75, muted: false, shuffle: false, repeat: 'off', skin: structuredClone(SKINS.classic), visibility: { eq: true, playlist: true }, layout: {} };
+  const state = { equalizer: normalizeEqualizer(saved?.equalizer), version: 2, playlist: [], activePlaylist: null, selectedId: null, volume: 75, muted: false, shuffle: false, repeat: 'off', skin: structuredClone(SKINS.classic), visibility: { eq: true, playlist: true }, layout: {} };
   if (!saved || typeof saved !== 'object') return state;
   if (Array.isArray(saved.playlist)) {
     const seen = new Set();
@@ -102,6 +102,7 @@ export function initialState(saved) {
   state.shuffle = saved.shuffle === true;
   if (['off', 'all', 'one'].includes(saved.repeat)) state.repeat = saved.repeat;
   try { if (saved.skin) state.skin = validateSkin(saved.skin); } catch { /* Fall back to the classic skin. */ }
+  if (state.playlist.length) state.activePlaylist = normalizePlaylistIdentity(saved.activePlaylist);
   for (const key of ['eq', 'playlist']) if (typeof saved.visibility?.[key] === 'boolean') state.visibility[key] = saved.visibility[key];
   for (const key of ['main', 'eq', 'video', 'playlist', 'library']) {
     const point = saved.layout?.[key];
@@ -136,4 +137,15 @@ export function formatTime(seconds) {
   const hours = Math.floor(value / 3600);
   const minutes = Math.floor((value % 3600) / 60);
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}` : `${String(minutes).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+}
+
+export function normalizePlaylistIdentity(value) {
+  const id = value?.id ?? value?.playlistId;
+  if (typeof id !== 'string' || !/^[\w-]{2,150}$/.test(id)) return null;
+  let thumbnail;
+  try {
+    const url = new URL(value.thumbnail);
+    if (url.protocol === 'https:' && !url.username && !url.password && (url.hostname === 'music.youtube.com' && url.pathname === '/image/mixart' || ['ytimg.com', 'googleusercontent.com', 'ggpht.com', 'gstatic.com'].some(host => url.hostname === host || url.hostname.endsWith(`.${host}`)))) thumbnail = url.href;
+  } catch { /* A playlist may have no artwork. */ }
+  return { ...(thumbnail ? { thumbnail } : {}), id, source: value.source === 'music' ? 'music' : 'youtube', title: typeof value.title === 'string' && value.title.trim() ? value.title.trim().slice(0, 300) : 'YouTube playlist' };
 }

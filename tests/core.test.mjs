@@ -132,3 +132,14 @@ test('saved queues preserve bounded music metadata without inventing missing fie
   assert.equal(state.playlist[2].artist.length, 300); assert.equal(state.playlist[2].album.length, 300);
   assert.deepEqual(initialState(JSON.parse(JSON.stringify(state))).playlist, state.playlist);
 });
+
+test('playlist identity survives restarts only for a nonempty valid queue', () => {
+  const playlist = [{ id: 'M7lc1UVf-VE', title: 'Song' }];
+  const activePlaylist = { id: 'PL_known', title: 'My playlist', source: 'music' };
+  const restored = initialState({ version: 2, playlist, activePlaylist });
+  assert.deepEqual(restored.activePlaylist, activePlaylist);
+  assert.deepEqual(initialState(JSON.parse(JSON.stringify(restored))).activePlaylist, activePlaylist);
+  assert.equal(initialState({ version: 2, playlist }).activePlaylist, null);
+  assert.equal(initialState({ version: 2, playlist: [], activePlaylist }).activePlaylist, null);
+  assert.equal(initialState({ version: 2, playlist, activePlaylist: { id: '<invalid>' } }).activePlaylist, null);
+});

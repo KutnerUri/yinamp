@@ -1,9 +1,9 @@
 import { PlaylistCache } from './playlist-cache.js';
 
-export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
+export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {}, activePlaylist = null }) {
   const $ = selector => document.querySelector(selector);
   const desktop = Boolean(window.yinampDesktop);
-  let section = desktop ? 'mine' : 'discover', request = 0, opening = false, selected = '', signature, visibleData = null;
+  let section = desktop ? 'mine' : 'discover', request = 0, opening = false, selected = activePlaylist, signature, visibleData = null;
   const cache = new PlaylistCache();
   const captions = { mine: 'YOUR CREATED & SAVED MUSIC PLAYLISTS', mixes: 'MIXES FROM YOUR YOUTUBE MUSIC ACCOUNT', discover: desktop ? 'PLAYLISTS FROM YOUR YOUTUBE MUSIC HOME FEED' : 'COMMUNITY & FEATURED MUSIC PLAYLISTS' };
   function message(text, error = false) { $('#library-message').textContent = text; $('#library-message').hidden = !text; $('#library-message').setAttribute('role', error ? 'alert' : 'status'); }
@@ -13,18 +13,18 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
     const root = $('#library-results'); root.replaceChildren();
     $('#library-count').textContent = data ? `${items.length} ${items.length === 1 ? 'PLAYLIST' : 'PLAYLISTS'}${data.partial ? ' · LOADED SO FAR' : ''}` : '';
     for (const item of items) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = `library-card${selected === item.id ? ' selected' : ''}`; button.disabled = opening; button.setAttribute('aria-label', `Play ${item.title}`);
+      const button = document.createElement('button'); button.type = 'button'; button.className = `library-card${selected?.id === item.id ? ' selected' : ''}`; button.disabled = opening; if (selected?.id === item.id) button.setAttribute('aria-current', 'true'); button.setAttribute('aria-label', `Play ${item.title}`);
       const art = document.createElement('span'); art.className = 'library-art'; art.textContent = '♪';
       if (item.thumbnail) { const image = document.createElement('img'); image.src = item.thumbnail; image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; image.onerror = () => { image.remove(); art.textContent = '♪'; }; art.replaceChildren(image); }
       const copy = document.createElement('span'); copy.className = 'library-card-copy';
       const title = document.createElement('span'); title.className = 'library-card-title'; title.textContent = item.title; title.title = item.title;
       const subtitle = document.createElement('span'); subtitle.className = 'library-card-subtitle'; subtitle.textContent = item.subtitle || (item.kind === 'mix' ? 'YouTube Mix' : 'Music playlist'); subtitle.title = subtitle.textContent;
-      const play = document.createElement('span'); play.className = 'library-play'; play.textContent = '▶ PLAY';
+      const play = document.createElement('span'); play.className = 'library-play'; play.textContent = selected?.id === item.id ? '✓ IN QUEUE' : '▶ PLAY';
       copy.append(title, subtitle, play); button.append(art, copy);
       button.onclick = async () => {
         if (opening) return;
         opening = true; render(); message(`Opening ${item.title}…`);
-        try { const result = await onPlay(item); selected = item.id; message(`Playing ${item.title}.${result?.partial ? ' Loaded the available portion of this playlist.' : ''}`); }
+        try { const result = await onPlay(item); message(`Playing ${item.title}.${result?.partial ? ' Loaded the available portion of this playlist.' : ''}`); }
         catch (error) { message(cleanError(error), true); }
         finally { opening = false; render(); }
       };
@@ -86,11 +86,15 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
   $('#library-sign-in').onclick = onSignIn;
   select(section);
   return {
+    setActivePlaylist(value) {
+      if (selected?.id === value?.id && selected?.title === value?.title) return;
+      selected = value; render();
+    },
     accountChanged(value) {
-      if (value.switching) { request++; cache.clear(); visibleData = null; selected = ''; render(); message('Switching channel…'); return; }
+      if (value.switching) { request++; cache.clear(); visibleData = null; render(); message('Switching channel…'); return; }
       if (!['signed-in', 'signed-out'].includes(value.status)) return;
       const next = `${value.revision ?? 0}:${value.status}:${value.avatar?.split('=')[0] ?? ''}`;
-      if (signature && signature !== next) { request++; cache.clear(); visibleData = null; selected = ''; render(); void load(true); }
+      if (signature && signature !== next) { request++; cache.clear(); visibleData = null; render(); void load(true); }
       signature = next;
     },
   };

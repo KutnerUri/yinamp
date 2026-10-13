@@ -101,13 +101,17 @@ deferred additional filtering. Lists may overlap. Title-based category selection
 was removed; public/signed-out Community/Featured search remains separate.
 See the latest production-adapter evidence in `LIBRARY-VALIDATION.md`.
 
-#### 2. Show the active playlist — requested; confirm implementation plan
+#### 2. Show the active playlist — approved; ready for user commit
 
-- [ ] Show a compact active-playlist name above the track queue and identify the matching card in Music Library, when the queue has a known playlist source.
-- [ ] Persist playlist identity across restarts; retain it through track changes and pause, replace it only after a successful playlist load, and clear it when the queue is emptied or replaced with an unrelated queue.
-- [ ] Preserve the previous active playlist on failed/cancelled loads. Avoid claiming that a restored, paused queue is currently playing.
-- [ ] Existing saved queues have no playlist-source identity; explain that opening a playlist once establishes it instead of guessing from song titles.
-- [ ] Verify saved-state/browser/desktop behavior, then pause for user review and commit.
+- [x] Show a compact active-playlist name above the track queue and identify the matching card in Music Library, when the queue has a known playlist source.
+- [x] Persist playlist identity across restarts; retain it through track changes and pause, replace it only after a successful playlist load, and clear it when the queue is emptied or replaced with an unrelated queue.
+- [x] Preserve the previous active playlist on failed/cancelled loads. Avoid claiming that a restored, paused queue is currently playing.
+- [x] Existing saved queues have no playlist-source identity; explain that opening a playlist once establishes it instead of guessing from song titles.
+- [x] User approved implementation on 2026-10-13. Verify 94 regression tests, browser library checks, and controlled desktop-adapter checks for identity across pause/track changes/reload, failed loads, empty-queue clearing and narrow layout. Screenshots inspected.
+- [x] User approved the cover/name presentation on 2026-10-13 and requested preparation for commit.
+- [ ] User commit checkpoint.
+
+The queue shows the playlist cover beside its name (the `PLAYLIST` prefix was removed at the user’s request), and its library card shows `IN QUEUE`; neither claims playback is active. Adding an unrelated song or loading a queue JSON clears the source identity. Artwork is saved with playlist identity; reopen previously saved playlists once to capture their cover. Missing or failed artwork is hidden. Cover persistence and narrow layout passed the controlled interface check. Older saved queues show “Open a playlist to identify this queue.” Evidence: `tests/core.test.mjs` and ignored `work/qa/active-playlist-check.mjs`.
 
 #### 3. Discover should contain new suggestions
 
