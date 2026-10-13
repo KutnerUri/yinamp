@@ -504,7 +504,10 @@ function updateAccount(data) {
 async function checkAccount() { try { updateAccount(await window.yinampDesktop.account('status')); } catch { renderAccount({ ...desktopAccount, issue: 'Login status could not be checked. Try again.' }); } }
 if (window.yinampDesktop) {
   renderAccount(desktopAccount);
-  const unsubscribeAccount = window.yinampDesktop.onPlayer(event => { if (event.type === 'account-state') updateAccount(event.data); });
+  let mismatchTimer;
+  const unsubscribeAccount = window.yinampDesktop.onPlayer(event => {
+    if (event.type === 'search-mismatch') { clearTimeout(mismatchTimer); $('#search-mismatch').hidden = false; mismatchTimer = setTimeout(() => { $('#search-mismatch').hidden = true; }, 5000); }
+    if (event.type === 'account-state') updateAccount(event.data); });
   window.addEventListener('pagehide', unsubscribeAccount, { once: true });
   void checkAccount();
 }
@@ -527,7 +530,15 @@ $('#account-sign-out').onclick = () => accountAction('sign-out');
 $('#account-refresh').onclick = () => accountAction('refresh');
 $('#account-check').onclick = () => void checkAccount();
 $('#account-diagnostics').onclick = () => accountAction('diagnostics');
-musicLibrary = setupMusicLibrary({ activePlaylist: state.activePlaylist, onPlay: item => openOnlinePlaylist(item, true), onSignIn: () => accountAction('library'), onLayout: () => panels.refresh() });
+musicLibrary = setupMusicLibrary({ pinnedSearches: state.pinnedSearches, onPinsChanged: pins => { state.pinnedSearches = pins; saveState(); }, activePlaylist: state.activePlaylist, onPlay: item => openOnlinePlaylist(item, true), onSong: (item, autoplay) => {
+  let track = state.playlist.find(track => track.id === item.id);
+  if (!track) {
+    if (state.playlist.length >= 500) throw new Error('The queue is full (500 songs).');
+    track = { id: item.id, title: item.title, duration: item.duration || 0, start: 0, artist: item.artist || '', album: item.album || '', versions: cleanVersions(item.versions) };
+    state.playlist.push(track); state.activePlaylist = null;
+  }
+  renderPlaylist(); if (autoplay) selectTrack(track.id, true); persist();
+}, onSignIn: () => accountAction('library'), onLayout: () => panels.refresh() });
 $('#reset-layout').onclick = () => { panels.reset(); notify('Windows arranged.'); };
 $('#compact-main').onclick = () => { const body = $('#main-body'); body.hidden = !body.hidden; $('#compact-main').setAttribute('aria-expanded', String(!body.hidden)); panels.refresh(); };
 $('#fullscreen').onclick = async () => { if (window.yinampDesktop) { player.fullscreen(); return; } try { if (document.fullscreenElement) await document.exitFullscreen(); else await $('#video-viewport').requestFullscreen(); } catch { notify('Use the fullscreen button inside the YouTube video on this browser.'); } };

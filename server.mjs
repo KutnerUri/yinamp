@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve, extname, sep } from 'node:path';
 import { parsePlaylistListing } from './playlist-listing.mjs';
 import { parseMusicPlaylistHTML } from './music-library.mjs';
-import { discoverMusicPlaylists } from './music-query.mjs';
+import { searchMusic, suggestMusic, discoverMusicPlaylists } from './music-query.mjs';
 import { PlaylistCache } from './src/playlist-cache.js';
 
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
@@ -31,6 +31,20 @@ export function createAppServer({ fetcher = fetch } = {}) {
       // Expose only this dependency's ESM entry, keeping the app build-free.
       if (url.pathname === '/src/vendor/signals-core.js') {
         return send(200, await readFile(fileURLToPath(import.meta.resolve('@preact/signals-core'))), mime['.js']);
+      }
+      if (url.pathname === '/api/search-suggestions') {
+        try { return send(200, JSON.stringify(await suggestMusic(url.searchParams.get('q'), fetcher))); }
+        catch { return send(200, '[]'); }
+      }
+      if (url.pathname === '/api/search') {
+        const query = url.searchParams.get('q'), type = url.searchParams.get('type') || 'playlists', pages = Number(url.searchParams.get('pages') || 1);
+        if (!query?.trim() || query.length > 200 || !['songs', 'playlists'].includes(type) || !Number.isInteger(pages) || pages < 1 || pages > 10) return send(400, JSON.stringify({ error: 'Invalid search options.' }));
+        try {
+          const key = `search:${JSON.stringify([query, type, pages])}`;
+          const cached = url.searchParams.get('refresh') !== '1' && catalogCache.get(key);
+          const data = cached || await searchMusic({ query, type, pages, fetcher, signal: AbortSignal.timeout(30000) }); catalogCache.set(key, data);
+          return send(200, JSON.stringify(data));
+        } catch { return send(502, JSON.stringify({ error: 'YouTube Music search could not load. Try again.' })); }
       }
       if (url.pathname === '/api/library') {
         if (url.searchParams.get('section') !== 'discover') return send(400, JSON.stringify({ error: 'Personal library views use the desktop app.' }));

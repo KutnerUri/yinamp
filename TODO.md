@@ -1,6 +1,6 @@
 # Work queue and completion record
 
-Updated: 2026-10-12. Work proceeds in the order below. Checked items have
+Updated: 2026-10-13. Work proceeds in the order below. Checked items have
 implementation/test evidence or an explicit user confirmation. An unchecked
 verification item is not a claim that its implementation is missing.
 
@@ -113,35 +113,41 @@ See the latest production-adapter evidence in `LIBRARY-VALIDATION.md`.
 
 The queue shows the playlist cover beside its name (the `PLAYLIST` prefix was removed at the user’s request), and its library card shows `IN QUEUE`; neither claims playback is active. Adding an unrelated song or loading a queue JSON clears the source identity. Artwork is saved with playlist identity; reopen previously saved playlists once to capture their cover. Missing or failed artwork is hidden. Cover persistence and narrow layout passed the controlled interface check. Older saved queues show “Open a playlist to identify this queue.” Evidence: `tests/core.test.mjs` and ignored `work/qa/active-playlist-check.mjs`.
 
-#### 3. Discover should contain new suggestions
+#### 3. Discover should contain new suggestions — skipped for now
 
 - [x] Earlier checkpoint implemented exclusions; superseded by the user’s approved broader Discovery feed after actual-client investigation.
 - [ ] Reconsider new-only/library exclusions and Community filters after review of the current three tabs; they are not enabled in the current broad feed.
 - [x] Preserve 30-minute caching, refresh source/library/exclusion catalogs together on Refresh/account changes, and identify partial results.
 - [ ] User behavior review and commit checkpoint.
 
-#### 4. Songs in a separate tab
+#### 4. Songs in a separate tab — skipped for now
 
 - [ ] Propose a minimal Songs tab for individual music tracks removed from Mixes, then confirm the implementation plan.
 - [ ] Implement song classification and playback with distinct queue behavior from playlist replacement; keep podcasts excluded.
 - [ ] User behavior review and commit checkpoint.
 
-#### 5. Loaders in appropriate locations
+#### 5. Loaders in appropriate locations — complete
 
-- [ ] Show loading feedback where work is happening: initial catalog/tab loads, catalog refresh, playlist opening, and search when added.
-- [ ] Keep cached content visible during background refresh where appropriate; make active/loading, error, and empty states clear without shifting the layout or leaving stale spinners.
-- [ ] User behavior review and commit checkpoint.
+- [x] Show loading feedback for initial catalog/tab loads, catalog refresh, and playlist opening: skeleton cards, shared segment indicators, refresh feedback, and an OPENING indicator on the selected card. Search feedback belongs to task 6 when search is added.
+- [x] Keep current content visible during refresh; clear loading state on completion/error and ignore stale catalog responses. Provide accessible busy/status states and reduced-motion styling.
+- [x] User confirmed this task was just completed on 2026-10-13; code inspection confirms the implementation in `src/library-ui.js`, `src/loading-ui.js`, and `src/styles.css`. This inspection did not include fresh visual QA.
+- [ ] User commit checkpoint.
 
-#### 6. Search YouTube for playlists and songs
+#### 6. Search YouTube for playlists and songs — reviewed; ready for user commit
 
-- [ ] Explore an actual YouTube/YouTube Music search source and autocomplete source; present and confirm the implementation plan before substantial changes.
-- [ ] Keep search inside Music Library using the existing "Find a playlist" input: typing filters the current in-library view immediately; pressing Enter submits an actual online search. Preserve the in-library filter rather than replacing it.
-- [ ] Make online search results distinct from filtered library results, with a simple return to the prior library view; searching itself must not replace the playback queue.
-- [ ] Add autocomplete as an enhancement to this flow if supported: keyboard-accessible suggestions, bounded/debounced requests, and cancellation of stale query responses; preserve Enter-to-search and immediate local filtering.
-- [ ] Support playlist search such as "indie roadtrip" and song search such as "smooth criminal", with clearly separated result types and no podcasts.
-- [ ] Preserve playback while searching, replace the queue only on successful playlist opening, and define single-song selection behavior together with the Songs tab.
-- [ ] Check loading, no-results, failure, account/session isolation, and suitable search-result caching.
-- [ ] User behavior review and commit checkpoint.
+Next implementation priority: the user skipped tasks 3 and 4 on 2026-10-13. A standalone Songs tab is not a prerequisite for typed song search. The user approved search tabs on 2026-10-13, with wrapping, shortened labels, hover pins and close buttons. Implementation and verification are recorded in `SEARCH.md`. Latest user clarification: pinning restores a tab after restart. Save only pinned queries and result type in desktop app settings (browser mode uses local storage); results, pagination, filters, scroll and unpinned tabs remain memory-only.
+
+- [x] Research typed Music search and public autocomplete, present the plan and obtain user approval before implementation.
+- [x] Keep search inside Music Library using the existing "Find a playlist" input: typing filters the current in-library view immediately; pressing Enter submits an actual online search. Preserve the in-library filter rather than replacing it.
+- [x] Make online search results distinct from filtered library results, with a simple return to the prior library view; searching itself must not replace the playback queue.
+- [x] Add autocomplete as an enhancement to this flow if supported: keyboard-accessible suggestions, bounded/debounced requests, and cancellation of stale query responses; preserve Enter-to-search and immediate local filtering.
+- [x] Support playlist search such as "indie roadtrip" and song search such as "smooth criminal", with clearly separated result types and no podcasts.
+- [x] Preserve playback while searching, replace the queue only on successful playlist opening, and offer Play now and Queue on song results, preserving the existing queue; a standalone Songs library tab remains skipped.
+- [x] Check loading, no-results, failure, account/session isolation, and suitable search-result caching.
+- [x] User reviewed search, confirmed pins survive restart and images now appear, and requested commit preparation.
+- [ ] User commit checkpoint.
+
+Evidence: 99 regression tests pass; controlled browser checks cover tab wrapping/closing/pinned-query restoration, filter/scroll restoration, autocomplete keyboard use, Queue/Play now, stale replies, errors/empty states and 375 px layout. Live public search and isolated anonymous desktop search verified; fresh signed-in account behavior remains for user review. See `SEARCH.md`.
 
 #### 7. Repeated metadata — low priority; usefulness still to be decided
 
@@ -298,3 +304,21 @@ lack a creator ID and remain visible under the owner-only rule.
 
 - [x] Add a simulated browser visualizer fallback while YouTube is playing; settle on pause/stop and respect reduced-motion settings. Clearly identify it as decorative.
 - [x] Desktop equalizer: preamp, nine bands, bypass/reset, saved settings and manual preamp. Automatic compensation removed at the user’s request on 2026-10-13. All 87 tests pass; controlled PCM audio, two live YouTube tracks, reload persistence and a short CPU comparison passed. See `docs/equalizer.md`.
+
+### Search speed milestone — reusable hidden client
+
+- [x] Reuse one muted hidden search window, serialize operations and reuse a loaded query for Community/Featured selection.
+- [x] Bound each attempt to 25 seconds, validate query/category, discard crashed/unresponsive windows (including idle failures), and retry once on a fresh window. Report a second failure; cancel on account invalidation and clean up on shutdown.
+- [x] Pass 105 regression tests, including silent stalls, renderer failures, idle failure and account cancellation. Live anonymous reuse/crash recovery evidence is recorded in `SEARCH.md`.
+- [x] User described current search speed as reasonably fast; confirmed the artwork fix in the next milestone.
+- [ ] Implement internal search navigation after a separate approval; new queries still perform full page loads in the reused window. Direct-API transport remains a separate proposal.
+
+### Search response schema and artwork — artwork reviewed; ready for user commit
+
+- [x] Prefer response JSON, use category-confirmed page fallback only when a matching response is absent, and preserve richer metadata/artwork during merges.
+- [x] Support responsive playlist search rows' nested artwork shape.
+- [x] Add a separate expected-schema file; drop invalid fields/entries, and keep absent optional metadata valid.
+- [x] Flash a separate red MISMATCH bulb for five seconds and log sanitized shape details to `yinamp-search-mismatches.jsonl`; provide View → Search mismatch log.
+- [x] Pass 109 regression tests, controlled indicator/interface checks and live anonymous artwork/source checks; evidence in `SEARCH.md`.
+- [x] User confirmed artwork appears in search results and requested commit preparation. The mismatch indicator has controlled verification; no live provider mismatch was deliberately induced in the user’s session.
+- [ ] User commit checkpoint. Internal navigation remains a separate search-speed milestone.

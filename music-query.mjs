@@ -1,5 +1,5 @@
 import { musicPageData } from './music-library.mjs';
-import { parseMusicLibrary } from './src/library-data.js';
+import { musicSongItems, parseMusicLibrary } from './src/library-data.js';
 
 const origin = 'https://music.youtube.com';
 const agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
@@ -89,4 +89,33 @@ export async function discoverMusicPlaylists(options = {}) {
   const items = new Map();
   for (const item of [...community.items, ...featured.items]) if (!items.has(item.id)) items.set(item.id, item);
   return { items: [...items.values()], partial: community.partial || featured.partial };
+}
+
+export async function searchMusic({ query, type = 'playlists', pages = 1, fetcher = fetch, signal } = {}) {
+  if (typeof query !== 'string' || !query.trim() || query.length > 200 || !['songs', 'playlists'].includes(type) || !Number.isInteger(pages) || pages < 1 || pages > 10) throw new Error('Invalid search options.');
+  if (type === 'playlists') return discoverMusicPlaylists({ query, fetcher, signal, maxPages: pages, limit: 500 });
+  const url = new URL(`${origin}/search`); url.searchParams.set('q', query); url.searchParams.set('hl', 'en');
+  const response = await fetcher(url, { signal: signal ?? AbortSignal.timeout(10000), headers: { 'User-Agent': agent } });
+  if (!response.ok) throw new Error('Search could not load.');
+  const configuration = musicSearchConfiguration(await response.text());
+  if (!configuration.filters.songs) throw new Error('YouTube Music did not provide Songs search.');
+  const items = new Map(), seen = new Set(); let continuation;
+  for (let page = 0; page < pages; page++) {
+    const data = await requestMusicPage({ fetcher, signal, clientVersion: configuration.clientVersion, ...(continuation ? { continuation } : { query, params: configuration.filters.songs }) });
+    for (const item of musicSongItems(data)) items.set(item.id, item);
+    const tokens = musicContinuations(data); continuation = tokens.find(token => !seen.has(token));
+    if (!continuation) break; seen.add(continuation);
+  }
+  return { items: [...items.values()], partial: Boolean(continuation) };
+}
+
+// Suggestions are public text, not account history or authentication context.
+export async function suggestMusic(query, fetcher = fetch) {
+  if (typeof query !== 'string' || query.length < 2 || query.length > 200) return [];
+  const url = new URL('https://suggestqueries.google.com/complete/search');
+  url.searchParams.set('client', 'firefox'); url.searchParams.set('ds', 'yt'); url.searchParams.set('q', query);
+  const response = await fetcher(url, { signal: AbortSignal.timeout(5000) });
+  if (!response.ok) throw new Error('Suggestions unavailable.');
+  const data = await response.json();
+  return Array.isArray(data[1]) ? data[1].filter(value => typeof value === 'string' && value.length <= 200).slice(0, 6) : [];
 }

@@ -29,7 +29,7 @@ export function parseMusicLibrary(data, section = 'mine') {
     const mix = /^RD(?!CLAK)/.test(id) || /AUTOMIX|MIX/i.test(pageType);
     if (section === 'mixes' && !mix || section === 'discover' && mix) return;
     seen.add(id);
-    const thumbnails = value.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails ?? value.thumbnail?.thumbnails ?? [];
+    const thumbnails = value.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails ?? value.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails ?? value.thumbnail?.thumbnails ?? [];
     const bylineRuns = [...(value.subtitle?.runs ?? []), ...(value.flexColumns?.slice(1).flatMap(column => column.musicResponsiveListItemFlexColumnRenderer?.text?.runs ?? []) ?? [])];
     const owners = new Set(bylineRuns.map(run => {
       const owner = run.navigationEndpoint?.browseEndpoint;
@@ -160,4 +160,35 @@ export function parsePlaylistTracks(data) {
   }
   walk(data);
   return { tracks, partial };
+}
+
+// Search accepts tracks only from an explicitly selected Songs response.
+export function parseMusicSongs(data) {
+  const roots = [], visited = new WeakSet();
+  function walk(value, depth = 0) {
+    if (!value || typeof value !== 'object' || depth > 35 || visited.has(value)) return;
+    visited.add(value);
+    if (value.musicResponsiveListItemRenderer) {
+      const row = value.musicResponsiveListItemRenderer;
+      const navigationEndpoint = row.navigationEndpoint ?? row.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint ?? row.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.navigationEndpoint;
+      const watch = navigationEndpoint?.watchEndpoint;
+      if (watch?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType === 'MUSIC_VIDEO_TYPE_ATV') roots.push({ ...row, navigationEndpoint });
+      return;
+    }
+    for (const [key, child] of Object.entries(value)) if (!['menu', 'responseContext', 'trackingParams'].includes(key)) walk(child, depth + 1);
+  }
+  walk(data);
+  return roots;
+}
+
+export function musicSongItems(data) {
+  const rows = parseMusicSongs(data);
+  const tracks = parsePlaylistTracks({ musicPlaylistShelfRenderer: { contents: rows.map(row => ({ musicResponsiveListItemRenderer: row })) } }).tracks;
+  return tracks.map(track => {
+    const row = rows.find(row => (row.playlistItemData?.videoId ?? row.navigationEndpoint?.watchEndpoint?.videoId) === track.id);
+    const raw = row?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.at(-1)?.url;
+    let thumbnail = '';
+    try { const url = new URL(raw); if (url.protocol === 'https:' && !url.username && !url.password && ['.ytimg.com', '.googleusercontent.com', '.ggpht.com'].some(host => url.hostname.endsWith(host))) thumbnail = url.href; } catch {}
+    return { ...track, kind: 'song', thumbnail, subtitle: [track.artist, track.album].filter(Boolean).join(' · ') };
+  });
 }

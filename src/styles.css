@@ -75,3 +75,46 @@ input[type=range]{width:100%;height:14px;accent-color:var(--accent);margin:0;cur
 .library-loading #library-refresh{animation:refresh-turn 1.4s .2s linear infinite}
 @keyframes refresh-turn{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.segment-loader,.segment-loader i,.library-skeleton,.library-loading #library-refresh{animation:none}.segment-loader i{opacity:.62}.library-skeleton{opacity:.6}}
+
+/* Search tabs share the library strip and wrap into additional rows. */
+.library-tabs{flex-wrap:wrap;min-width:0;gap:4px}
+.library-toolbar{flex-wrap:wrap}.library-toolbar .library-tabs{flex:1 1 100%}
+.search-tab{position:relative;display:inline-flex;align-items:stretch;max-width:210px;min-width:0;border:1px solid var(--edge);background:var(--screen);color:var(--text)}
+.search-tab.active{background:var(--screen);color:var(--accent);border-color:var(--accent)}
+.library-tabs .search-tab button{border:0;background:transparent;color:inherit}
+.library-tabs .search-tab-label{max-width:142px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.library-tabs .search-tab-pin,.library-tabs .search-tab-close{padding:4px 6px;flex:none}
+.library-tabs .search-tab-pin{position:absolute;left:2px;top:0;bottom:0;width:22px;padding:0;z-index:1;background:var(--screen);color:var(--text)}
+.library-tabs .search-tab.active .search-tab-pin{background:var(--screen);color:var(--accent)}
+.search-tab-pin{opacity:0;transition:opacity .16s ease}.search-tab:hover .search-tab-pin,.search-tab:focus-within .search-tab-pin{opacity:1}
+.search-tab.pinned .search-tab-pin{opacity:1}
+.search-tools{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}.search-tools[hidden],.search-more[hidden]{display:none}
+.search-tools button,.song-actions button{background:var(--screen);color:var(--text);border:1px solid var(--edge);padding:5px 7px;font:10px var(--mono);cursor:pointer}
+.search-tools button[aria-pressed=true]{color:var(--accent);border-color:var(--accent)}
+.song-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:center}.search-more{display:block;margin:10px auto}
+.library-summary #library-caption{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+@media(hover:none){.search-tab-pin{opacity:1}}
+/* Use Floating UI if this dropdown needs viewport collision handling, flipping,
+   or placement outside a clipping ancestor. CSS is enough for this field anchor. */
+.library-suggestions{position:absolute;top:calc(100% + 4px);left:0;width:100%;z-index:10;box-shadow:0 4px 10px #0005;border:1px solid var(--edge);background:var(--screen);font:11px var(--mono);max-height:180px;overflow:auto}.library-suggestions[hidden]{display:none}
+.library-suggestions [role=option]{padding:7px 9px;cursor:pointer}.library-suggestions [aria-selected=true],.library-suggestions [role=option]:hover{background:color-mix(in srgb,var(--accent) 8%,var(--screen));color:var(--text)}
+
+@media(prefers-reduced-motion:reduce){.search-tab-pin{transition:none}}
+
+.library-tabs button[aria-selected=true]{background:var(--screen);color:var(--accent);border-color:var(--accent)}
+.library-tabs .search-tab-pin{cursor:pointer}
+.library-tabs .search-tab .search-tab-pin:hover,.library-tabs .search-tab .search-tab-pin:focus-visible{color:color-mix(in srgb,var(--accent) 65%,white);box-shadow:none}
+
+.search-tab.pinned .search-tab-label{padding-left:25px}
+.library-search-field{position:relative;width:190px;min-width:0}
+.library-search-field #library-filter{width:100%;padding-right:30px}
+#library-filter::-webkit-search-cancel-button{display:none}
+#library-filter-clear{position:absolute;right:3px;top:3px;bottom:3px;width:24px;padding:0;border:0;background:transparent;color:var(--text);font:16px var(--mono);cursor:pointer}
+#library-filter-clear[hidden]{display:none}
+#library-filter-clear:hover,#library-filter-clear:focus-visible{background:color-mix(in srgb,var(--accent) 10%,var(--screen));color:var(--accent)}
+@media(max-width:940px){.library-search-field{width:100%}}
+
+#search-mismatch{display:inline-flex;align-items:center;gap:4px;margin-left:auto;margin-right:8px;color:#ff7373;font:9px var(--mono)}
+#search-mismatch[hidden]{display:none}.mismatch-dot{width:5px;height:5px;border-radius:50%;background:#ff5353;box-shadow:0 0 5px #ff5353;animation:mismatch-flash .65s steps(2,end) infinite}
+@keyframes mismatch-flash{50%{opacity:.25}}
+@media(prefers-reduced-motion:reduce){.mismatch-dot{animation:none}}

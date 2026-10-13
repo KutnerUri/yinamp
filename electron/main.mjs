@@ -11,6 +11,7 @@ import { YOUTUBE_PARTITION, INTERFACE_PARTITION, accountURL, isAccountURL, watch
 import { snapshotScript, commandScript, playerLayoutCSS, didProviderAdvance } from './page-scripts.mjs';
 import { installSpectrumScript, readSpectrumScript, spectrumVolumeCSS } from './audio-spectrum.mjs';
 import { accountSnapshot, accountState, accountStatusScript, isAccountStatusPage, navigationDetails, shouldCompleteChannelSwitch } from './account.mjs';
+import { writeSearchMismatch } from './search-mismatch-log.mjs';
 import { createMusicLibrary } from './library.mjs';
 import { settleLibraryRequest } from './library-errors.mjs';
 
@@ -38,7 +39,7 @@ let accountPoll, accountReading = false, accountVersion = 0, loginIssue = '';
 let accountClosing = false, channelSwitch = null, accountRevision = 0, authoritativeAccount = false;
 let playerAccount = accountSnapshot({ status: 'checking' });
 let windowAccount = accountSnapshot(null), publishedAccount = '';
-const library = createMusicLibrary({ onIdentity: identity => { if (!accountRequested && !accountClosing && !authoritativeAccount && identity.status === 'signed-in') { windowAccount = identity; publishAccount(); } } });
+const library = createMusicLibrary({ onMismatch: issue => { const logged = writeSearchMismatch(join(app.getPath('userData'), 'yinamp-search-mismatches.jsonl'), issue); send({ type: 'search-mismatch', data: { logged } }); }, onIdentity: identity => { if (!accountRequested && !accountClosing && !authoritativeAccount && identity.status === 'signed-in') { windowAccount = identity; publishAccount(); } } });
 function diagnostic(event, details = {}) {
   if (!diagnosticPath) return;
   try {
@@ -380,6 +381,7 @@ async function start() {
   await mkdir(app.getPath('userData'), { recursive: true });
   diagnosticPath = join(app.getPath('userData'), 'yinamp-diagnostics.jsonl');
   diagnostic('startup');
+  await writeFile(join(app.getPath('userData'), 'yinamp-search-mismatches.jsonl'), '', { flag: 'a' });
   app.on('render-process-gone', (_event, contents, details) => {
     const role = contents === win?.webContents ? 'interface' : contents === view?.webContents ? 'player' : contents === accountWindow?.webContents ? 'account' : 'other';
     diagnostic('renderer-gone', { role, reason: details.reason, exitCode: details.exitCode });
@@ -399,7 +401,7 @@ async function start() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ label: 'Yinamp', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }] }] : []),
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
-    { label: 'View', submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { role: 'togglefullscreen' }] },
+    { label: 'View', submenu: [{ label: 'Search mismatch log', click: () => shell.showItemInFolder(join(app.getPath('userData'), 'yinamp-search-mismatches.jsonl')) }, { role: 'reload' }, { role: 'toggleDevTools' }, { role: 'togglefullscreen' }] },
   ]));
   ipcMain.handle('yinamp:read-state', async event => {
     trusted(event);
@@ -416,6 +418,7 @@ async function start() {
   ipcMain.handle('yinamp:library', async (event, value) => {
     trusted(event);
     return settleLibraryRequest(() => {
+      if (value?.action === 'search') return library.search(value.query, value.type, value.pages ?? 1, value.refresh === true);
       if (value?.action === 'browse') return library.browse(value.section, value.refresh === true);
       if (value?.action === 'versions') return library.versions(value.id);
       if (value?.action === 'playlist') return library.playlist(value.playlist);
