@@ -57,6 +57,7 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
       message(data.ownerFilterUnavailable ? 'Your channel identity could not be verified, so owner filtering was not applied. Refresh to retry.' : data.partial ? 'Showing the available portion of this collection. Refresh to retry loading more.' : 'Choose a playlist to replace the queue and start listening.');
     } catch (error) {
       if (version !== request) return;
+      if (error.code === 'LIBRARY_CANCELLED') { message(''); return; }
       const text = cleanError(error); message(text, true); $('#library-sign-in').hidden = !desktop || !/sign in/i.test(text);
     } finally {
       if (version === request) { $('#library-results').setAttribute('aria-busy', 'false'); render(); }
@@ -86,8 +87,9 @@ export function setupMusicLibrary({ onPlay, onSignIn, onLayout = () => {} }) {
   select(section);
   return {
     accountChanged(value) {
+      if (value.switching) { request++; cache.clear(); visibleData = null; selected = ''; render(); message('Switching channel…'); return; }
       if (!['signed-in', 'signed-out'].includes(value.status)) return;
-      const next = `${value.status}:${value.avatar?.split('=')[0] ?? ''}`;
+      const next = `${value.revision ?? 0}:${value.status}:${value.avatar?.split('=')[0] ?? ''}`;
       if (signature && signature !== next) { request++; cache.clear(); visibleData = null; selected = ''; render(); void load(true); }
       signature = next;
     },

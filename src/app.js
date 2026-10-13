@@ -500,7 +500,7 @@ async function accountAction(action) {
   try {
     const result = await window.yinampDesktop.account(action);
     if (action !== 'diagnostics') $('#account-dialog').close();
-    if (action !== 'diagnostics') notify(action === 'refresh' ? result.refreshed ? 'Updating the player session. Press Play when ready.' : 'Add a track to check the player session.' : action === 'sign-out' ? 'Signed out of Yinamp. Your playlists and browser accounts are unchanged.' : result.opened === false ? 'Account window closed. Press Play to resume.' : 'Complete sign-in in the YouTube account window. Close it when done, then press Play.');
+    if (action !== 'diagnostics') notify(action === 'refresh' ? result.refreshed ? 'Updating the player session. Press Play when ready.' : 'Add a track to check the player session.' : action === 'sign-out' ? 'Signed out of Yinamp. Your playlists and browser accounts are unchanged.' : result.opened === false ? 'Account window closed. Press Play to resume.' : action === 'switch' ? 'Choose your channel in the YouTube window. Yinamp will update automatically.' : 'Complete sign-in in the YouTube account window. Close it when done, then press Play.');
   } catch (error) { $('#account-error').textContent = error.message; $('#account-error').hidden = false; }
   finally { buttons.forEach(button => { button.disabled = false; }); }
 }

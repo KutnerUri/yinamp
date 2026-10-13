@@ -7,7 +7,7 @@ export function isAccountURL(value) {
 export function accountURL(action) {
   if (action === 'library') return 'https://music.youtube.com/library/playlists';
   if (action === 'open') return 'https://www.youtube.com/account';
-  if (action === 'switch') return 'https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fwww.youtube.com%2F';
+  if (action === 'switch') return 'https://www.youtube.com/channel_switcher';
   throw new Error('Unsupported account action');
 }
 export function watchURL(id, start = 0) {

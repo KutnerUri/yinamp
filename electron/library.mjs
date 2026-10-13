@@ -1,3 +1,4 @@
+import { libraryCancelled } from './library-errors.mjs';
 import { cleanVersions } from '../src/track-versions.js';
 import { BrowserWindow, WebContentsView, session } from 'electron';
 import { YOUTUBE_PARTITION, isAccountURL, isYouTubeURL } from './contracts.mjs';
@@ -33,7 +34,7 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
     const target = new URL(url);
     const version = generation;
     const task = async () => {
-      if (version !== generation) throw new Error('The account changed. Refresh the library.');
+      if (version !== generation) throw libraryCancelled();
       const cached = cache.get(key);
       if (cached) return cached;
       const options = { partition: YOUTUBE_PARTITION, nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false };
@@ -54,14 +55,14 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
           if (!result.signedIn && key !== 'home') throw signInError();
           if (key === 'home' && result.signedIn) {
             const viewerOwnerId = cache.get('owner:channel') ?? await currentMusicOwner(contents, () => version === generation);
-            if (version !== generation) throw new Error('The account changed. Refresh the library.');
+            if (version !== generation) throw libraryCancelled();
             if (viewerOwnerId) cache.set('owner:channel', viewerOwnerId);
             result = { ...result, viewerOwnerId };
           }
           const identity = isYouTubeURL(contents.getURL()) ? accountSnapshot(await contents.executeJavaScript(accountStatusScript)) : null;
-          if (version !== generation) throw new Error('The account changed. Refresh the library.');
+          if (version !== generation) throw libraryCancelled();
           if (identity && identity.status !== 'unknown') onIdentity(identity);
-          if (version !== generation) throw new Error('The account changed. Refresh the library.');
+          if (version !== generation) throw libraryCancelled();
           cache.set(key, result);
           return result;
         }
@@ -87,20 +88,21 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
           lastHeight = last.height;
           await delay(450);
         }
-        if (version !== generation) throw new Error('The account changed. Refresh the library.');
+        if (version !== generation) throw libraryCancelled();
         if (!last?.ready) throw new Error('YouTube could not load this music listing. Try refreshing.');
         let partial = last.partial === true || Date.now() - start >= 18000;
-        if (version !== generation) throw new Error('The account changed. Refresh the library.');
+        if (version !== generation) throw libraryCancelled();
         const result = { ...last, [last.tracks ? 'tracks' : 'items']: [...collected.values()], partial };
         if (key === 'mine' || key === 'home') {
           const identity = isYouTubeURL(contents.getURL()) ? accountSnapshot(await contents.executeJavaScript(accountStatusScript)) : null;
-          if (version !== generation) throw new Error('The account changed. Refresh the library.');
+          if (version !== generation) throw libraryCancelled();
           if (identity && identity.status !== 'unknown') onIdentity(identity);
         }
-        if (version !== generation) throw new Error('The account changed. Refresh the library.');
+        if (version !== generation) throw libraryCancelled();
         if (!last.tracks || result.tracks.length) cache.set(key, result);
         return result;
       } catch (error) {
+        if (version !== generation) throw libraryCancelled();
         if (error.code === 'ERR_ABORTED') throw new Error('The library request was interrupted. Refresh to try again.');
         if (error.code?.startsWith('ERR_') || typeof error.errno === 'number') throw new Error('YouTube could not load this music listing. Check your connection and refresh.');
         throw error;
@@ -125,7 +127,7 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
       const result = await page(url, null, key);
       if (!result.signedIn && section === 'discover') {
         const data = await discoverMusicPlaylists({ fetcher, signal: AbortSignal.timeout(30000) });
-        if (version !== generation) throw new Error('The account changed. Refresh the library.');
+        if (version !== generation) throw libraryCancelled();
         cache.set(`catalog:${section}`, data); return data;
       }
       // Membership comes from the requested collection, not translated shelf titles.
@@ -133,7 +135,7 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
       // No Library/Mixes listing or display-name matching is needed.
       const items = section === 'discover' ? withoutOwnedPlaylists(result.items, result.viewerOwnerId) : result.items;
       const data = { items, partial: result.partial, ...(section === 'discover' ? { excludedOwn: result.items.length - items.length, ownerFilterUnavailable: !result.viewerOwnerId } : {}) };
-      if (version !== generation) throw new Error('The account changed. Refresh the library.');
+      if (version !== generation) throw libraryCancelled();
       cache.set(`catalog:${section}`, data); return data;
     },
     async versions(id) {
@@ -148,7 +150,7 @@ export function createMusicLibrary({ onIdentity = () => {} } = {}) {
       const listing = await page(url.href, `(${readRenderedPlaylist.toString()})(${parsePlaylistTracks.toString()})`, `watch:${id}`);
       const track = listing.tracks?.find(track => track.id === id || Object.values(track.versions ?? {}).some(item => item.id === id));
       const result = { versions: cleanVersions(track?.versions), ...Object.fromEntries(['artist', 'album'].filter(field => track?.[field]).map(field => [field, track[field]])) };
-      if (version !== generation) throw new Error('The account changed. Try again.');
+      if (version !== generation) throw libraryCancelled();
       cache.set(key, result);
       return result;
     },

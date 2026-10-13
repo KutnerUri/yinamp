@@ -1,7 +1,7 @@
 import { isYouTubeURL } from './contracts.mjs';
 
 export function isAccountStatusPage(value) {
-  try { const url = new URL(value); return isYouTubeURL(value) && ['/', '/watch', '/account', '/account_advanced', '/account_privacy'].includes(url.pathname); } catch { return false; }
+  try { const url = new URL(value); return isYouTubeURL(value) && ['/', '/watch', '/account', '/account_advanced', '/account_privacy', '/channel_switcher'].includes(url.pathname); } catch { return false; }
 }
 
 // Read only visible YouTube identity/branding and its public signed-in flag.
@@ -19,7 +19,9 @@ export function readYouTubeAccount() {
     : avatarButton ? 'signed-in' : 'unknown';
   const logo = topbar?.logo?.topbarLogoRenderer ?? document.querySelector('ytd-topbar-logo-renderer')?.data;
   const branding = [logo?.iconImage?.iconType, logo?.icon?.iconType, document.querySelector('#logo')?.getAttribute('aria-label')].filter(value => typeof value === 'string').join(' ');
-  const avatar = avatarData?.thumbnails?.at(-1)?.url || avatarButton?.querySelector('img')?.getAttribute('src') || null;
+  // YouTube replaces the visible avatar during channel switches without
+  // necessarily replacing ytInitialData from the first page load.
+  const avatar = avatarButton?.querySelector('img')?.getAttribute('src') || avatarData?.thumbnails?.at(-1)?.url || null;
   const name = document.querySelector('ytd-active-account-header-renderer #account-name')?.textContent?.trim() || null;
   return { status, avatar: status === 'signed-in' ? avatar : null, name: status === 'signed-in' ? name : null, premium: status === 'signed-in' && /premium/i.test(branding) ? true : null };
 }
@@ -38,9 +40,10 @@ export function accountState(player, account, issue = '') {
   const known = ['signed-in', 'signed-out'].includes(account.status);
   // A music-library page may expose its login flag before its avatar loads.
   // Prefer the actual player's identity in that case instead of clearing it.
-  const identity = known && (account.status === 'signed-out' || account.avatar || player.status !== 'signed-in') ? account : player;
-  const avatarKey = value => value?.split('=')[0]?.split('?')[0];
+  let identity = known && (account.status === 'signed-out' || account.avatar || player.status !== 'signed-in') ? account : player;
+  const avatarKey = avatarIdentityKey;
   const needsRefresh = known && player.status !== 'checking' && (player.status !== account.status || Boolean(player.avatar && account.avatar && avatarKey(player.avatar) !== avatarKey(account.avatar)));
+  if (identity === player && !player.name && account.name && player.avatar && account.avatar && avatarKey(player.avatar) === avatarKey(account.avatar)) identity = { ...player, name: account.name };
   const connectionConfirmed = player.status === 'signed-in' && !needsRefresh && (identity === player || Boolean(player.avatar && identity.avatar && avatarKey(player.avatar) === avatarKey(identity.avatar)));
   return { ...identity, premium: connectionConfirmed ? player.premium : null, accountPremium: account.premium, playerStatus: player.status, connectionConfirmed, needsRefresh, issue };
 }
@@ -51,4 +54,23 @@ export function navigationDetails(value) {
     const route = path.includes('setsid') || path.includes('checkcookie') ? 'session-transfer' : path.includes('passkey') ? 'passkey' : /\/(pwd|password)(\/|$)/.test(path) ? 'password' : path.includes('challenge') ? 'challenge' : path.includes('signin') || path.includes('servicelogin') ? 'sign-in' : isYouTubeURL(value) ? 'youtube' : 'other';
     return { host: url.hostname, route };
   } catch { return { host: '', route: 'other' }; }
+}
+
+export function sameAccountIdentity(left, right) {
+  const key = value => avatarIdentityKey(value?.avatar);
+  return left?.status === right?.status && Boolean(key(left) && key(right) && key(left) === key(right));
+}
+export function shouldCompleteChannelSwitch(before, after, chooserSeen, url) {
+  if (!chooserSeen || after?.status !== 'signed-in' || !after.avatar) return false;
+  if (before?.avatar && !sameAccountIdentity(before, after)) return true;
+  try { const page = new URL(url); return page.hostname === 'www.youtube.com' && page.pathname === '/'; } catch { return false; }
+}
+
+export function avatarIdentityKey(value) {
+  try {
+    const url = new URL(value);
+    // YouTube serves the same avatar through both of these image domains.
+    const host = /^(yt[0-9]+)\.(ggpht\.com|googleusercontent\.com)$/.test(url.hostname) ? 'youtube-avatar' : url.hostname;
+    return host + url.pathname.split('=')[0];
+  } catch { return null; }
 }

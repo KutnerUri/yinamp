@@ -4,8 +4,8 @@ export function renderAccount(data, root = document) {
   const signedOut = data.status === 'signed-out';
   const label = signedIn ? data.premium ? 'YouTube Premium' : 'Signed in' : signedOut ? 'Sign in' : 'Account';
   const connected = data.connectionConfirmed === true;
-  const connection = data.needsRefresh ? 'Update player' : connected ? 'Player connected' : data.playerStatus === 'signed-in' ? 'Player signed in' : signedOut ? 'Desktop YouTube' : signedIn && data.playerLoaded === false ? 'Ready to play' : signedIn ? 'Checking player…' : data.status === 'checking' ? 'Checking login…' : 'Login not confirmed';
-  $('#account-label').textContent = label;
+  const connection = data.needsRefresh ? 'Channel changed' : signedIn ? data.premium ? 'YouTube Premium' : 'YouTube' : signedOut ? 'Signed out' : 'Checking login…';
+  $('#account-label').textContent = signedIn && data.name ? data.name : label;
   $('#account-connection').textContent = connection;
   $('#open-account').setAttribute('aria-label', `${label} — ${connection}. Account options`);
   $('#open-account').dataset.connected = String(connected);
@@ -19,13 +19,12 @@ export function renderAccount(data, root = document) {
   $('#account-name').textContent = signedIn ? data.name || 'YouTube account' : 'Desktop YouTube account';
   $('#account-status').textContent = signedIn ? 'Signed in to YouTube' : signedOut ? 'Signed out of YouTube' : 'Login status not yet confirmed';
   $('#account-premium').hidden = !(signedIn && data.premium === true);
-  $('#account-player-status').textContent = data.needsRefresh ? 'Your account changed. Update the player session to use it; the current track will reload paused.'
-    : signedIn && data.playerLoaded === false ? 'Your desktop account is signed in. Choose a playlist to begin.'
-    : connected ? 'The player is signed in with this account.'
-    : data.playerStatus === 'signed-in' ? 'The player is signed in; its account identity has not yet been matched to the account window.'
-    : signedOut && data.playerStatus === 'signed-out' ? 'The player is signed out. Sign in to use your account in Yinamp.'
-    : 'Choose a track and check login status to confirm the player session.';
+  $('#account-player-status').textContent = data.needsRefresh ? data.switching ? 'Switching channel…' : 'Your channel changed. Reload the player under Troubleshooting to finish updating.' : '';
+  $('#account-player-status').hidden = !data.needsRefresh;
+  $('#account-sign-in').hidden = signedIn;
+  $('#account-sign-out').hidden = !signedIn;
   $('#account-refresh').hidden = !data.needsRefresh;
+  $('#account-switch').hidden = signedOut;
   $('#account-error').textContent = data.issue || '';
   $('#account-error').hidden = !data.issue;
 }

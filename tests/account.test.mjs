@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readYouTubeAccount, accountSnapshot, accountState, navigationDetails, isAccountStatusPage } from '../electron/account.mjs';
+import { readYouTubeAccount, accountSnapshot, accountState, navigationDetails, isAccountStatusPage, shouldCompleteChannelSwitch } from '../electron/account.mjs';
 import { isAccountURL } from '../electron/contracts.mjs';
 
 test('login permits Google session transfers but keeps general Google navigation restricted', () => {
@@ -10,6 +10,7 @@ test('login permits Google session transfers but keeps general Google navigation
   assert.equal(isAccountStatusPage('https://accounts.google.com/v3/signin/challenge/pwd'), false);
   assert.equal(isAccountStatusPage('https://accounts.youtube.com/accounts/SetSID'), false);
   assert.equal(isAccountStatusPage('https://www.youtube.com/watch?v=IHHq6lAgZzs'), true);
+  assert.equal(isAccountStatusPage('https://www.youtube.com/channel_switcher'), true);
 });
 test('login diagnostics keep route categories and hostnames without query parameters or credentials', () => {
   const value = navigationDetails('https://accounts.google.com/v3/signin/challenge/pwd?email=private@example.test#secret');
@@ -45,8 +46,30 @@ test('account UI distinguishes the login window from the player, including accou
   assert.equal(state.needsRefresh, false); assert.equal(state.premium, true);
   const different = accountState(user, accountSnapshot({ ...user, avatar: 'https://yt3.googleusercontent.com/other=s88' }));
   assert.equal(different.needsRefresh, true); assert.equal(different.premium, null); assert.equal(different.connectionConfirmed, false);
+  const namedChannel = accountState(user, accountSnapshot({ ...user, name: 'My music channel' }));
+  assert.equal(namedChannel.name, 'My music channel');
+  assert.equal(namedChannel.connectionConfirmed, true);
   const incompleteLibraryIdentity = accountState(user, accountSnapshot({ ...user, avatar: null }));
   assert.equal(incompleteLibraryIdentity.connectionConfirmed, true); assert.equal(incompleteLibraryIdentity.avatar, user.avatar);
   assert.equal(accountState(user, out).needsRefresh, true);
   assert.equal(accountState(accountSnapshot({ status: 'checking' }), user).needsRefresh, false);
+});
+
+test('channel changes use the visible avatar instead of stale bootstrap identity', t => {
+  const previous = { document: globalThis.document, ytcfg: globalThis.ytcfg, ytInitialData: globalThis.ytInitialData };
+  t.after(() => { for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete globalThis[key]; else globalThis[key] = value; } });
+  globalThis.ytcfg = { get: () => true };
+  globalThis.ytInitialData = { topbar: { desktopTopbarRenderer: { topbarButtons: [{ topbarMenuButtonRenderer: { avatar: { thumbnails: [{ url: 'https://yt3.googleusercontent.com/old=s88' }] } } }] } } };
+  globalThis.document = { querySelector: selector => selector.startsWith('#avatar-btn') ? { querySelector: () => ({ getAttribute: () => 'https://yt3.googleusercontent.com/new=s48' }) } : null };
+  assert.equal(readYouTubeAccount().avatar, 'https://yt3.googleusercontent.com/new=s48');
+});
+test('chooser completes only after a confirmed selection, including reselecting the current channel', () => {
+  const before = { status: 'signed-in', avatar: 'https://yt3.googleusercontent.com/old=s48' };
+  const after = { status: 'signed-in', avatar: 'https://yt3.googleusercontent.com/new=s88' };
+  assert.equal(shouldCompleteChannelSwitch(before, after, false, 'https://www.youtube.com/account'), false);
+  assert.equal(shouldCompleteChannelSwitch(before, before, true, 'https://www.youtube.com/account'), false);
+  assert.equal(shouldCompleteChannelSwitch(before, { ...before, avatar: before.avatar.replace('s48', 's88') }, true, 'https://www.youtube.com/account'), false);
+  assert.equal(shouldCompleteChannelSwitch(before, after, true, 'https://www.youtube.com/'), true);
+  assert.equal(shouldCompleteChannelSwitch(before, before, true, 'https://www.youtube.com/'), true);
+  assert.equal(shouldCompleteChannelSwitch(before, { status: 'unknown' }, true, 'https://accounts.google.com/'), false);
 });

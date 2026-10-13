@@ -10,8 +10,9 @@ import { initialState } from '../src/core.js';
 import { YOUTUBE_PARTITION, INTERFACE_PARTITION, accountURL, isAccountURL, watchURL, isYouTubeURL, isExternalURL, viewBounds, validateCommand } from './contracts.mjs';
 import { snapshotScript, commandScript, playerLayoutCSS, didProviderAdvance } from './page-scripts.mjs';
 import { installSpectrumScript, readSpectrumScript, spectrumVolumeCSS } from './audio-spectrum.mjs';
-import { accountSnapshot, accountState, accountStatusScript, isAccountStatusPage, navigationDetails } from './account.mjs';
+import { accountSnapshot, accountState, accountStatusScript, isAccountStatusPage, navigationDetails, shouldCompleteChannelSwitch } from './account.mjs';
 import { createMusicLibrary } from './library.mjs';
+import { settleLibraryRequest } from './library-errors.mjs';
 
 app.setName('Yinamp');
 const profile = process.argv.find(value => value.startsWith('--profile='));
@@ -24,7 +25,7 @@ let poll, polling = false, requestedId = null, initializedVideo = false, loading
 let wantsPlay = false, volume = 75, muted = false, lastError = '', loadVersion = 0;
 let equalizer = { enabled: true, preamp: 0, bands: Array(9).fill(0) };
 let commandQueue = Promise.resolve();
-let pendingStop = false;
+let pendingStop = false, accountPlaybackPaused = false;
 let queueEnded = false;
 let accountWindow = null;
 let accountRequested = false;
@@ -34,9 +35,10 @@ let youtubeSession;
 let shuttingDown = false;
 let diagnosticPath;
 let accountPoll, accountReading = false, accountVersion = 0, loginIssue = '';
+let accountClosing = false, channelSwitch = null, accountRevision = 0, authoritativeAccount = false;
 let playerAccount = accountSnapshot({ status: 'checking' });
 let windowAccount = accountSnapshot(null), publishedAccount = '';
-const library = createMusicLibrary({ onIdentity: identity => { if (identity.status === 'signed-in') { windowAccount = identity; publishAccount(); } } });
+const library = createMusicLibrary({ onIdentity: identity => { if (!accountRequested && !accountClosing && !authoritativeAccount && identity.status === 'signed-in') { windowAccount = identity; publishAccount(); } } });
 function diagnostic(event, details = {}) {
   if (!diagnosticPath) return;
   try {
@@ -48,6 +50,8 @@ const send = event => { if (win && !win.isDestroyed()) win.webContents.send('yin
 function publishAccount() {
   const data = accountState(playerAccount, windowAccount, loginIssue);
   data.playerLoaded = Boolean(requestedId);
+  data.revision = accountRevision;
+  data.switching = accountClosing;
   if (!requestedId) data.needsRefresh = false;
   const key = JSON.stringify(data);
   if (key !== publishedAccount) { publishedAccount = key; send({ type: 'account-state', data }); }
@@ -65,14 +69,18 @@ async function readAccountContents(contents) {
   finally { clearTimeout(timer); }
 }
 async function refreshAccountStatus() {
-  if (shuttingDown || accountReading || suppressAccountRefresh) return publishAccount();
+  if (shuttingDown || accountReading || suppressAccountRefresh || accountClosing) return publishAccount();
   accountReading = true;
   const version = accountVersion;
+  const playerVersion = loadVersion;
   try {
-    const [player, account] = await Promise.all([readAccountContents(view?.webContents), readAccountContents(accountRequested ? accountWindow?.webContents : null)]);
+    const [player, account] = await Promise.all([loading ? null : readAccountContents(view?.webContents), readAccountContents(accountRequested ? accountWindow?.webContents : null)]);
     if (version !== accountVersion || shuttingDown) return publishAccount();
-    if (player) playerAccount = player;
+    if (player && playerVersion === loadVersion) playerAccount = player;
     if (account) windowAccount = account;
+    if (channelSwitch && shouldCompleteChannelSwitch(channelSwitch.before, account, channelSwitch.chooserSeen, accountWindow?.webContents.getURL())) {
+      accountWindow.close();
+    }
     return publishAccount();
   } finally { accountReading = false; }
 }
@@ -141,6 +149,11 @@ async function pollVideo() {
       data = await view.webContents.executeJavaScript(snapshotScript);
     }
     if (initializedVideo) {
+      if (accountPlaybackPaused && !wantsPlay && [1, 3].includes(data.state)) {
+        await execute({ type: 'pause' });
+        if (version !== loadVersion) return;
+        data = await view.webContents.executeJavaScript(snapshotScript);
+      }
       if (Number.isFinite(data.volume)) volume = data.volume;
       muted = data.muted;
       lastSnapshot = data;
@@ -165,6 +178,7 @@ async function pollSpectrum() {
 }
 async function loadVideo(command) {
   if (shuttingDown || !view?.webContents || view.webContents.isDestroyed()) return;
+  if (!command.accountRefresh) accountPlaybackPaused = false;
   requestedId = command.id;
   queueEnded = false;
   spectrumActive = false;
@@ -209,13 +223,40 @@ async function switchVideo(command) {
   }
 }
 
+function createPlayerView() {
+  view = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, partition: YOUTUBE_PARTITION } });
+  youtubeSession = view.webContents.session;
+  view.setBackgroundColor('#080e08');
+  win.contentView.addChildView(view);
+  view.setVisible(false);
+  configureContents(view.webContents);
+  view.webContents.on('did-finish-load', () => void refreshAccountStatus());
+  view.webContents.on('render-process-gone', (_event, details) => {
+    if (shuttingDown || details.reason === 'clean-exit') return;
+    ++loadVersion; loading = false; initializedVideo = false; wantsPlay = false;
+    send({ type: 'error', message: 'The video player stopped unexpectedly. Press Retry to reload this track.' });
+  });
+  view.webContents.on('before-input-event', (_event, input) => {
+    if (input.type === 'keyDown' && input.key === 'Escape' && win.isFullScreen()) win.setFullScreen(false);
+  });
+}
 async function refreshAccountPlayback() {
   if (shuttingDown || !win || win.isDestroyed() || !requestedId || !view?.webContents || view.webContents.isDestroyed()) return;
-  // Reopen the current track with the updated session, paused at its latest position.
-  await loadVideo({ id: requestedId, start: lastSnapshot.current || 0, autoplay: false });
+  // A fresh player view drops the previous renderer's channel state while
+  // keeping the shared signed-in session, queue and playback position.
+  const id = requestedId, start = lastSnapshot.current || 0;
+  ++loadVersion; loading = true; initializedVideo = false; wantsPlay = false;
+  const previous = view, bounds = previous.getBounds(), visible = previous.getVisible();
+  win.contentView.removeChildView(previous);
+  previous.webContents.close();
+  createPlayerView();
+  view.setBounds(bounds); view.setVisible(visible);
+  accountPlaybackPaused = true;
+  await loadVideo({ id, start, autoplay: false, accountRefresh: true });
 }
 async function openAccount(action) {
   const url = accountURL(action);
+  channelSwitch = action === 'switch' ? { before: windowAccount.avatar ? windowAccount : playerAccount, chooserSeen: false } : null;
   accountRequested = true;
   if (accountWindow && !accountWindow.isDestroyed()) {
     if (action === 'switch' || !accountWindow.isVisible()) navigateAccount(accountWindow, url);
@@ -245,7 +286,8 @@ async function openAccount(action) {
     guard(event, target, inPlace, isMainFrame);
   });
   window.webContents.on('did-start-navigation', (_event, target, _inPlace, isMainFrame) => { if (isMainFrame && target !== 'about:blank') diagnostic('account-navigation-start', navigationDetails(target)); });
-  window.webContents.on('did-navigate', (_event, target, code) => { if (target !== 'about:blank') { diagnostic('account-navigation-complete', { ...navigationDetails(target), code }); loginIssue = code >= 400 ? 'The account page returned an error. Close the account window and try again.' : ''; publishAccount(); } });
+  window.webContents.on('did-navigate', (_event, target, code) => { if (target !== 'about:blank') {
+    if (channelSwitch && ['/channel_switcher', '/account'].includes(new URL(target).pathname)) channelSwitch.chooserSeen = true; diagnostic('account-navigation-complete', { ...navigationDetails(target), code }); loginIssue = code >= 400 ? 'The account page returned an error. Close the account window and try again.' : ''; publishAccount(); } });
   window.webContents.on('did-navigate-in-page', (_event, target, isMainFrame) => { if (isMainFrame) { diagnostic('account-navigation-in-page', navigationDetails(target)); void refreshAccountStatus(); } });
   window.webContents.on('did-finish-load', () => void refreshAccountStatus());
   window.webContents.on('did-fail-load', (_event, code, _description, target, isMainFrame) => {
@@ -267,20 +309,53 @@ async function openAccount(action) {
   window.on('close', event => {
     if (shuttingDown) return;
     event.preventDefault();
-    accountRequested = false;
-    library.invalidate();
-    window.hide();
-    void window.loadURL('about:blank').catch(() => {});
-    void youtubeSession.cookies.flushStore().catch(() => {});
-    if (!suppressAccountRefresh) void refreshAccountPlayback();
+    if (accountClosing) return;
+    if (suppressAccountRefresh) { accountRequested = false; channelSwitch = null; window.hide(); return; }
+    void finishAccountWindow(window);
   });
   window.on('closed', () => { accountWindow = null; });
   navigateAccount(window, url);
   return { opened: accountRequested };
 }
+async function finishAccountWindow(window) {
+  accountClosing = true;
+  ++accountVersion;
+  library.invalidate();
+  window.hide();
+  try {
+    // Capture the selected channel before discarding the chooser's page.
+    const selected = await readAccountContents(window.webContents);
+    if (selected && ['signed-in', 'signed-out'].includes(selected.status)) {
+      windowAccount = selected;
+      authoritativeAccount = true;
+    }
+    accountRequested = false;
+    channelSwitch = null;
+    playerAccount = accountSnapshot({ status: 'checking' });
+    publishAccount();
+    await window.loadURL('about:blank');
+    await youtubeSession.cookies.flushStore();
+    // Cached watch-page bootstrap data can still describe the previous channel.
+    await youtubeSession.clearCache();
+    await youtubeSession.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] });
+    await refreshAccountPlayback();
+  } catch {
+    loginIssue = 'The channel could not be refreshed. Try switching again.';
+  } finally {
+    accountRequested = false;
+    channelSwitch = null;
+    accountClosing = false;
+    library.invalidate();
+    ++accountRevision;
+    await refreshAccountStatus();
+    publishAccount();
+  }
+}
 async function signOutAccount() {
   library.invalidate();
   suppressAccountRefresh = true;
+  authoritativeAccount = false; channelSwitch = null;
+  ++accountRevision;
   ++accountVersion;
   try {
     if (accountWindow && !accountWindow.isDestroyed()) {
@@ -319,19 +394,8 @@ async function start() {
     title: 'Yinamp', width: 1120, height: 940, minWidth: 960, minHeight: 700, backgroundColor: '#14151e', show: false,
     webPreferences: { preload: join(directory, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, partition: INTERFACE_PARTITION },
   });
-  view = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, partition: YOUTUBE_PARTITION } });
-  youtubeSession = view.webContents.session;
-  view.setBackgroundColor('#080e08');
-  win.contentView.addChildView(view);
-  view.setVisible(false);
   configureContents(win.webContents, true);
-  configureContents(view.webContents);
-  view.webContents.on('did-finish-load', () => void refreshAccountStatus());
-  view.webContents.on('render-process-gone', (_event, details) => {
-    if (shuttingDown || details.reason === 'clean-exit') return;
-    ++loadVersion; loading = false; initializedVideo = false; wantsPlay = false;
-    send({ type: 'error', message: 'The video player stopped unexpectedly. Press Retry to reload this track.' });
-  });
+  createPlayerView();
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ label: 'Yinamp', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }] }] : []),
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
@@ -351,10 +415,12 @@ async function start() {
   });
   ipcMain.handle('yinamp:library', async (event, value) => {
     trusted(event);
-    if (value?.action === 'browse') return library.browse(value.section, value.refresh === true);
-    if (value?.action === 'versions') return library.versions(value.id);
-    if (value?.action === 'playlist') return library.playlist(value.playlist);
-    throw new Error('Unsupported library request');
+    return settleLibraryRequest(() => {
+      if (value?.action === 'browse') return library.browse(value.section, value.refresh === true);
+      if (value?.action === 'versions') return library.versions(value.id);
+      if (value?.action === 'playlist') return library.playlist(value.playlist);
+      throw new Error('Unsupported library request');
+    });
   });
   ipcMain.handle('yinamp:save-state', (event, value) => {
     trusted(event);
@@ -385,7 +451,7 @@ async function start() {
     if (command.type === 'fullscreen') { win.setFullScreen(command.enabled === true); return { ok: true }; }
     if (command.type === 'equalizer') equalizer = structuredClone(command.settings);
     if (command.type === 'volume') { volume = command.value; muted = command.muted === true; }
-    if (command.type === 'play') wantsPlay = true;
+    if (command.type === 'play') { wantsPlay = true; accountPlaybackPaused = false; }
     if (['pause', 'stop'].includes(command.type)) wantsPlay = false;
     if (command.type === 'stop') pendingStop = true;
     if (loading || !initializedVideo) return { queued: true };
@@ -400,9 +466,6 @@ async function start() {
   await win.loadURL(origin + '/');
   win.show();
   win.on('leave-full-screen', () => send({ type: 'fullscreen', enabled: false }));
-  view.webContents.on('before-input-event', (_event, input) => {
-    if (input.type === 'keyDown' && input.key === 'Escape' && win.isFullScreen()) win.setFullScreen(false);
-  });
   win.on('closed', () => { clearInterval(poll); clearInterval(spectrumPoll); clearInterval(accountPoll); if (view.webContents && !view.webContents.isDestroyed()) view.webContents.close(); app.quit(); });
   app.on('before-quit', event => {
     if (shuttingDown) return;

@@ -1,3 +1,4 @@
+import { libraryCancelled } from './library-errors.mjs';
 // Public channel ID only. Never read auth pages, account contexts or other input
 // values into diagnostics. YouTube's visible advanced-settings field is the
 // authority; a library byline or display name is not proof of the current owner.
@@ -10,7 +11,7 @@ export function readPublicChannelId() {
   return ids.size === 1 ? [...ids][0] : null;
 }
 export async function currentMusicOwner(contents, isCurrent = () => true) {
-  const assertCurrent = () => { if (!isCurrent()) throw new Error('The account changed. Refresh the library.'); };
+  const assertCurrent = () => { if (!isCurrent()) throw libraryCancelled(); };
   assertCurrent();
   try {
     await contents.loadURL('https://www.youtube.com/account_advanced');

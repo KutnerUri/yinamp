@@ -70,7 +70,7 @@ test('account navigation stays within HTTPS Google and YouTube pages, in a separ
   assert.notEqual(YOUTUBE_PARTITION, INTERFACE_PARTITION);
   assert.ok(YOUTUBE_PARTITION.startsWith('persist:'));
   assert.equal(accountURL('open'), 'https://www.youtube.com/account');
-  assert.equal(new URL(accountURL('switch')).hostname, 'accounts.google.com');
+  assert.equal(accountURL('switch'), 'https://www.youtube.com/channel_switcher');
   assert.throws(() => accountURL('https://evil.test'));
   for (const url of ['https://accounts.google.com/v3/signin', 'https://www.youtube.com/account', 'https://myaccount.google.com/']) assert.equal(isAccountURL(url), true);
   for (const url of ['https://accounts.google.com.evil.test/', 'https://accounts.google.com@evil.test/', 'http://accounts.google.com/', 'file:///etc/passwd', 'javascript:alert(1)']) assert.equal(isAccountURL(url), false);

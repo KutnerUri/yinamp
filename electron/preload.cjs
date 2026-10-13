@@ -5,7 +5,11 @@ contextBridge.exposeInMainWorld('yinampDesktop', {
   saveState: state => ipcRenderer.invoke('yinamp:save-state', state),
   player: command => ipcRenderer.invoke('yinamp:player', command),
   account: action => ipcRenderer.invoke('yinamp:account', action),
-  library: value => ipcRenderer.invoke('yinamp:library', value),
+  library: async value => {
+    const result = await ipcRenderer.invoke('yinamp:library', value);
+    if (result?.cancelled) throw Object.assign(new Error('The account changed. Try again.'), { code: 'LIBRARY_CANCELLED' });
+    return result;
+  },
   layout: bounds => ipcRenderer.send('yinamp:layout', bounds),
   onPlayer: callback => {
     const listener = (_event, value) => callback(value);

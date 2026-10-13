@@ -1,3 +1,4 @@
+import { libraryCancelled } from './library-errors.mjs';
 import { parseMusicLibrary, musicLibraryURL } from '../src/library-data.js';
 import { musicContinuations } from '../music-query.mjs';
 
@@ -33,7 +34,7 @@ export async function collectMusicCatalog(contents, section, isCurrent = () => t
       items.set(item.id, { ...item, ownerId: item.ownerId ?? previous?.ownerId ?? null });
     }
   };
-  const assertCurrent = () => { if (!isCurrent()) throw new Error('The account changed. Refresh the library.'); };
+  const assertCurrent = () => { if (!isCurrent()) throw libraryCancelled(); };
   const observe = (_event, method, event) => {
     if (method === 'Network.requestWillBeSent') {
       try {
