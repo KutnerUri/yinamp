@@ -1,3 +1,4 @@
+import { createLoader } from './loading-ui.js';
 import { cleanVersions, playbackTrack, versionMode, recordingControl } from './track-versions.js';
 import { normalizePlaylistIdentity, STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp } from './core.js';
 import { YouTubePlayer } from './youtube.js';
@@ -560,7 +561,7 @@ function setAddBusy(busy) {
   for (const id of ['video-url', 'video-title', 'include-playlist', 'add-submit']) $(`#${id}`).disabled = busy;
   $('#playlist-preview').hidden = !busy;
   $('#add-status').hidden = !busy;
-  if (busy) { $('#add-submit').textContent = 'LOADING…'; $('#add-status').textContent = 'Loading the playlist from YouTube…'; }
+  if (busy) { $('#add-submit').replaceChildren(createLoader(), document.createTextNode('LOADING…')); $('#add-status').textContent = 'Loading the playlist from YouTube…'; }
   else updateAddForm();
 }
 async function fillTrackTitles(tracks) {
