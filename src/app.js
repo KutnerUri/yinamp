@@ -10,6 +10,7 @@ import { renderAccount } from './account-ui.js';
 import { setupMusicLibrary } from './library-ui.js';
 import { batch, effect } from '@preact/signals-core';
 import { createPlayerUI, savedPlayerState, bindPlayerUI } from './player-ui.js';
+import { setupPlaylistNavigation } from './playlist-navigation.js';
 import { createDebouncedSave } from './persistence.js';
 
 const $ = selector => document.querySelector(selector);
@@ -20,6 +21,7 @@ const state = initialState(stored);
 function resetEmbedFailures(tracks) { if (window.yinampDesktop) for (const track of tracks) if ([101, 150].includes(track.unavailable?.code)) delete track.unavailable; }
 resetEmbedFailures(state.playlist);
 const ui = createPlayerUI(state);
+const refreshPlaylistNavigation = setupPlaylistNavigation($('#playlist'), $('#playlist-current'));
 const snapshot = () => savedPlayerState(state, ui);
 let seeking = false;
 let stopped = false;
@@ -320,7 +322,7 @@ function renderPlaylist() {
     const copy = document.createElement('span'); copy.className = 'track-copy';
     const name = document.createElement('span'); name.className = 'track-name'; name.textContent = track.title; name.title = track.title; copy.append(name);
     if (track.unavailable) {
-      const status = document.createElement('span'); status.className = 'track-availability'; status.textContent = retryingId === track.id ? 'RETRYING…' : 'UNAVAILABLE'; status.title = track.unavailable.message; copy.append(status);
+      const status = document.createElement('span'); status.className = 'track-availability'; status.textContent = retryingId === track.id ? '↻' : '!'; status.setAttribute('aria-label', retryingId === track.id ? 'Retrying' : 'Unavailable'); status.title = track.unavailable.message; copy.append(status);
     }
     const duration = document.createElement('span'); duration.className = 'track-duration'; duration.textContent = track.duration ? formatTime(track.duration) : '--:--';
     select.append(number, copy, duration);
@@ -347,6 +349,7 @@ function renderPlaylist() {
   $('#playlist-summary').textContent = `${state.playlist.length} ${state.playlist.length === 1 ? 'TRACK' : 'TRACKS'}${unavailableCount ? ` · ${unavailableCount} UNAVAILABLE` : total ? ` · ${formatTime(total)}` : ''}`;
   $('#retry-unavailable').hidden = !unavailableCount;
   if (focusedId && focusedAction) list.querySelector(`[data-track-id="${focusedId}"] [data-action="${focusedAction}"]`)?.focus({ preventScroll: true });
+  refreshPlaylistNavigation();
 }
 function clearPlayerError() {
   const wasVisible = !$('#player-error').hidden;
@@ -368,7 +371,7 @@ function selectTrack(id, autoplay = false) {
   playIntentPending = autoplay;
   if (retryingId) {
     const status = $(`#playlist [data-track-id="${retryingId}"] .track-availability`);
-    if (status) status.textContent = 'UNAVAILABLE';
+    if (status) { status.textContent = '!'; status.setAttribute('aria-label', 'Unavailable'); }
   }
   retryingId = track.unavailable && autoplay ? id : null;
   batch(() => {
@@ -680,6 +683,7 @@ document.addEventListener('keydown', event => {
 
 renderSkin(); renderPlaylist(); updateTrack();
 bindPlayerUI(ui, { onLayout: () => panels.refresh(), onInactive: () => visualizer.update() });
+effect(() => { ui.selectedId.value; refreshPlaylistNavigation(); });
 loadRecording(currentTrack(), false);
 player.initialize();
 void resolveVersions();

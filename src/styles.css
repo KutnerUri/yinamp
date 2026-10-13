@@ -36,3 +36,20 @@ input[type=range]{width:100%;height:14px;accent-color:var(--accent);margin:0;cur
 .eq-window .eq-sliders label{gap:22px}
 
 .account-actions .account-secondary{padding:10px 12px;min-height:40px;font:12px var(--ui);border:1px solid var(--edge);border-radius:3px;background:transparent;text-align:center}.account-actions .account-secondary:hover{background:color-mix(in srgb,var(--text),transparent 92%)}.account-troubleshooting{border-top:1px solid var(--edge);padding-top:12px;color:color-mix(in srgb,var(--text),var(--screen) 30%);font:10px var(--ui)}.account-troubleshooting summary{cursor:pointer;padding:4px 0}.account-tools{display:grid;gap:4px;margin-top:8px}.account-actions .account-tools button{padding:6px 0;font:10px var(--ui);text-align:left}
+
+/* Uniform playlist rows keep navigation and future virtualization predictable. */
+.playlist li[data-track-id]{height:30px;min-height:30px;overflow:hidden}
+.track-select{height:100%;padding-block:0;overflow:hidden}
+.track-copy{display:flex;align-items:center;gap:6px;overflow:hidden}
+.track-copy .track-name{min-width:0}
+.track-availability{flex:none;margin:0;font:10px var(--mono)}
+.playlist-viewport{position:relative}
+.playlist-current{position:absolute;left:50%;transform:translateX(-50%);width:28px;height:28px;border-radius:50%;display:grid;place-items:center;border:0;background:color-mix(in srgb,var(--screen),transparent 35%);opacity:0;pointer-events:none;transition:opacity 160ms ease;color:color-mix(in srgb,var(--accent),var(--screen) 65%);cursor:pointer;padding:0}
+.playlist-current[data-visible=true]{opacity:1;pointer-events:auto}
+.playlist-current[data-direction=up]{top:4px}
+.playlist-current[data-direction=down]{bottom:4px}
+.playlist-current span{width:7px;height:7px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(45deg);margin-top:-4px}
+.playlist-current[data-direction=up] span{transform:rotate(225deg);margin-top:4px}
+.playlist-current:hover,.playlist-current:focus-visible{color:var(--accent)}
+.playlist-current:focus-visible{outline:1px solid var(--accent);outline-offset:1px}
+@media(pointer:coarse){.playlist li[data-track-id]{height:42px;min-height:42px}.playlist-current{width:36px;height:36px}}
