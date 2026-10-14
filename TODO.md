@@ -1,6 +1,6 @@
 # Work queue and completion record
 
-Updated: 2026-10-13. Work proceeds in the order below. Checked items have
+Updated: 2026-10-14. Work proceeds in the order below. Checked items have
 implementation/test evidence or an explicit user confirmation. An unchecked
 verification item is not a claim that its implementation is missing.
 
@@ -155,10 +155,12 @@ Evidence: 99 regression tests pass; controlled browser checks cover tab wrapping
 - [ ] Keep useful metadata such as track counts, artist names, or community creators. Do not remove all metadata automatically; the user noted that some may be useful.
 - [ ] User behavior review and commit checkpoint if a cleanup is selected.
 
-#### 8. Playback leaves the queue — reported; queued after retrieval
+#### 8. Playback leaves the queue — minimal repair reviewed; ready for user commit
+
+Research and the approved minimal repair are recorded in `PLAYBACK-QUEUE.md` and the completion record below. The user accepted the controlled verification on 2026-10-14; normal-use violations will be assessed in the final log-review task. Native queue integration remains separate.
 
 - [ ] Compare the actual YouTube content ID with the selected Yinamp track and reproduce unexpected videos during playlist progression; YouTube auto-next is a hypothesis, not a proven cause.
-- [ ] Disable/control YouTube auto-next while Yinamp owns the queue and prevent unexpected content navigation from desynchronizing playback.
+- [x] Disable/control YouTube auto-next while Yinamp owns the queue and prevent unexpected content navigation from desynchronizing playback, with bounded recovery and diagnostics.
 - [ ] Verify endings, shuffle/repeat, and advertisements; review and commit separately. This new report does not silently resume the earlier deferred ad bug.
 
 #### 9. Artist and album in the player — metadata check complete; UI queued
@@ -372,3 +374,25 @@ lack a creator ID and remain visible under the owner-only rule.
 - [x] Pass 128 tests, controlled ordering/actions/pin/narrow checks and live anonymous mixed-result/artwork checks. Warm backend samples: 0.86–0.92 s; see `SEARCH.md`.
 - [x] User reviewed the result, reports search seems pretty fast, and requested commit preparation; speed is not a quantified user benchmark.
 - [ ] User commit checkpoint. Advanced filters and internal artist/album browsing remain deferred.
+
+### Playback ownership and native queue research — report complete
+
+- [x] User authorized research of queue escape, autoplay and native YouTube queuing/Premium requirements.
+- [x] Observe ready-but-buffering initialization leaving autoplay enabled, whereas a settled playing initialization disabled it; identify missing verification and unbounded preinitialization mismatch handling.
+- [x] Audit current diagnostics: no playback ID/autoplay transition trace. The historical escape is not conclusively reproduced.
+- [x] Verify official desktop queue availability without Premium, and prototype an anonymous three-ID queue; next/index controls did not prove reliable actual-ID progression.
+- [x] User approved a minimal current-player repair; native YouTube Music playback and native queue mirroring remain separate proposals. See `PLAYBACK-QUEUE.md`.
+
+### Minimal playback ownership repair — reviewed; ready for user commit
+
+- [x] Check autoplay after playback starts; make at most two spaced off attempts and log verification/failure in existing diagnostics.
+- [x] Give non-ad ID mismatches a two-second grace, pause/reload the selected recording once, then show Retry if the mismatch persists again. Keep the queue selection intact.
+- [x] Advance only on an actual requested-recording end and withhold stale/wrong-ID snapshots from the UI.
+- [x] Pass 132 regression tests and a controlled real-desktop check: autoplay off, exactly one mismatch reload, then Retry error, with queue selection preserved. Keep the ordinary YouTube player, existing Music song/video lookup, and existing diagnostic storage.
+- [x] User accepted the controlled verification on 2026-10-14, while noting the historical issue is difficult to verify manually. Review normal-use diagnostics at the end of the queue.
+- [ ] User commit checkpoint. Music-player migration/native queue integration remain separate.
+
+## Final queued task — review normal-use playback logs
+
+- [ ] After the other queued work, review the existing rotated `yinamp-diagnostics.jsonl` files for `playback-mismatch`, recovery/Retry outcomes and `autoplay-disable-failed` events accumulated during normal use.
+- [ ] Summarize observed violations and whether recovery preserved the selected track; investigate concrete recurring failures before proposing further playback changes. No recorded violation is not proof that the historical issue cannot recur.

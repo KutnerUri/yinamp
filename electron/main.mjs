@@ -8,6 +8,7 @@ import { createAppServer } from '../server.mjs';
 import { SPECTRUM_INTERVAL_MS } from '../src/spectrum-config.js';
 import { initialState } from '../src/core.js';
 import { YOUTUBE_PARTITION, INTERFACE_PARTITION, accountURL, isAccountURL, watchURL, isYouTubeURL, isExternalURL, viewBounds, validateCommand } from './contracts.mjs';
+import { createPlaybackOwnership } from './playback-ownership.mjs';
 import { snapshotScript, commandScript, playerLayoutCSS, didProviderAdvance } from './page-scripts.mjs';
 import { installSpectrumScript, readSpectrumScript, spectrumVolumeCSS } from './audio-spectrum.mjs';
 import { accountSnapshot, accountState, accountStatusScript, isAccountStatusPage, navigationDetails, shouldCompleteChannelSwitch } from './account.mjs';
@@ -29,6 +30,8 @@ let equalizer = { enabled: true, preamp: 0, bands: Array(9).fill(0) };
 let commandQueue = Promise.resolve();
 let pendingStop = false, accountPlaybackPaused = false;
 let queueEnded = false;
+const playbackOwnership = createPlaybackOwnership();
+let autoplayAttempts = 0, autoplayAttemptAt = 0, autoplayOutcomeLogged = false;
 let accountWindow = null;
 let accountRequested = false;
 let suppressAccountRefresh = false;
@@ -124,7 +127,8 @@ async function pollVideo() {
       return;
     }
     if (version === loadVersion && didProviderAdvance(data, requestedId, initializedVideo, isYouTubeURL(view.webContents.getURL()))) {
-      // The provider can advance before the next poll. Yinamp owns the queue.
+      // Only a real ending advances Yinamp's queue, even if YouTube moved first.
+      diagnostic('playback-ended', { requestedId, observedId: data.id, loadVersion });
       await execute({ type: 'pause' });
       if (version !== loadVersion) return;
       queueEnded = true; wantsPlay = false;
@@ -133,7 +137,33 @@ async function pollVideo() {
       return;
     }
     if (version !== loadVersion) return;
+    const mismatch = playbackOwnership.check(data, requestedId);
+    if (mismatch) {
+      diagnostic('playback-mismatch', { requestedId, observedId: data.id, state: data.state, loadVersion, action: mismatch });
+      await execute({ type: 'pause' });
+      if (version !== loadVersion) return;
+      if (mismatch === 'reload') { await loadVideo({ id: requestedId, start: lastSnapshot.current || 0, autoplay: wantsPlay, mismatchRecovery: true }); return; }
+      queueEnded = true; wantsPlay = false;
+      send({ type: 'error', message: 'YouTube opened a different video. Press Retry to reload the selected track.' });
+      return;
+    }
     if (data.id !== requestedId) return;
+    // Check after playback settles; volume/play commands must not both click
+    // the toggle while YouTube is still updating it.
+    if (!data.isAd && data.state === 1) {
+      if (data.autoplay && autoplayAttempts < 2 && Date.now() - autoplayAttemptAt >= 1000) {
+        autoplayAttempts++; autoplayAttemptAt = Date.now(); autoplayOutcomeLogged = false;
+        await execute({ type: 'autoplay-off' });
+        if (version !== loadVersion) return;
+        diagnostic('autoplay-disable', { requestedId, attempt: autoplayAttempts, loadVersion });
+      } else if (data.autoplay === false && autoplayAttempts && !autoplayOutcomeLogged) {
+        autoplayOutcomeLogged = true;
+        diagnostic('autoplay-disabled', { requestedId, loadVersion });
+      } else if (data.autoplay === true && autoplayAttempts >= 2 && Date.now() - autoplayAttemptAt >= 1000 && !autoplayOutcomeLogged) {
+        autoplayOutcomeLogged = true;
+        diagnostic('autoplay-disable-failed', { requestedId, loadVersion });
+      }
+    }
     if (data.error) {
       if (data.error !== lastError) { lastError = data.error; send({ type: 'error', message: data.error, code: 100 }); }
       return;
@@ -156,6 +186,7 @@ async function pollVideo() {
         if (version !== loadVersion) return;
         data = await view.webContents.executeJavaScript(snapshotScript);
       }
+      if (version !== loadVersion || data.id !== requestedId) return;
       if (Number.isFinite(data.volume)) volume = data.volume;
       muted = data.muted;
       lastSnapshot = data;
@@ -182,6 +213,8 @@ async function loadVideo(command) {
   if (shuttingDown || !view?.webContents || view.webContents.isDestroyed()) return;
   if (!command.accountRefresh) accountPlaybackPaused = false;
   requestedId = command.id;
+  if (!command.mismatchRecovery) playbackOwnership.reset();
+  autoplayAttempts = 0; autoplayAttemptAt = 0; autoplayOutcomeLogged = false;
   queueEnded = false;
   spectrumActive = false;
   send({ type: 'spectrum', data: { active: false, bands: [] } });
@@ -211,6 +244,7 @@ async function switchVideo(command) {
     if (version !== loadVersion) return { superseded: true };
     if (!result?.switched) return { error: result?.error ?? 'This player could not switch recordings. Click VID to retry.', unchanged: true };
     requestedId = command.id;
+    playbackOwnership.reset(); autoplayAttempts = 0; autoplayAttemptAt = 0; autoplayOutcomeLogged = false;
     queueEnded = false;
     initializedVideo = false;
     lastError = '';

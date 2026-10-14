@@ -118,10 +118,16 @@ test('the volume bridge uses YouTube’s user-facing level instead of normalized
   controlPage({type:'volume',value:0,muted:false});assert.equal(graph.volume,0);assert.equal(video.volume,1);assert.equal(video.muted,false);
  });
 
-test('provider queue changes without a media ended event stop auto-advance, while own switches do not finish the queue', () => {
-  assert.equal(didProviderAdvance({ id: 'kgcUJumE2J0' }, 'ZIDqxZKqTK4', true, true), true);
+test('only actual endings advance the queue, not provider navigation or ads', () => {
+  assert.equal(didProviderAdvance({ id: 'kgcUJumE2J0' }, 'ZIDqxZKqTK4', true, true), false);
   assert.equal(didProviderAdvance({ id: 'kgcUJumE2J0' }, 'ZIDqxZKqTK4', false, true), false);
   assert.equal(didProviderAdvance({ id: 'ZIDqxZKqTK4' }, 'ZIDqxZKqTK4', true, true), false);
   assert.equal(didProviderAdvance({ id: 'kgcUJumE2J0' }, 'ZIDqxZKqTK4', true, false), false);
   assert.equal(didProviderAdvance({ id: 'kgcUJumE2J0', isAd: true }, 'ZIDqxZKqTK4', true, true), false);
+});
+
+test('actual end markers and ended requested media finish the track',()=>{
+ assert.equal(didProviderAdvance({id:'kgcUJumE2J0',endedId:'ZIDqxZKqTK4'},'ZIDqxZKqTK4',true,true),true);
+ assert.equal(didProviderAdvance({id:'ZIDqxZKqTK4',state:0},'ZIDqxZKqTK4',true,true),true);
+ assert.equal(didProviderAdvance({id:'ZIDqxZKqTK4',state:0,isAd:true},'ZIDqxZKqTK4',true,true),false);
 });

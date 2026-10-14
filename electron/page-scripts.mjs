@@ -1,6 +1,6 @@
 // These scripts control the ordinary page's HTML media element. No media URLs are extracted.
 export function didProviderAdvance(data, requestedId, initialized, providerPage) {
-  return Boolean(requestedId && !data.isAd && (data.endedId === requestedId || initialized && providerPage && data.id && data.id !== requestedId));
+  return Boolean(requestedId && !data.isAd && (data.endedId === requestedId || data.id === requestedId && data.state === 0));
 }
 
 export function readPage() {
@@ -20,9 +20,10 @@ export function readPage() {
   const isAd = player?.classList.contains('ad-showing') ?? false;
   if (video) video.__yinampObservedAd = isAd;
   const cued = player?.getPlayerState?.() === 5;
+  const autoplay = document.querySelector('.ytp-autonav-toggle-button')?.getAttribute?.('aria-checked');
   const error = document.querySelector('.ytp-error-content-wrap-reason')?.textContent?.trim() ?? '';
   return {
-    id, endedId, hasVideo: Boolean(video), error, equalizerAvailable: Boolean(globalThis.__yinampAudio),
+    id, endedId, autoplay: autoplay === 'true' ? true : autoplay === 'false' ? false : null, hasVideo: Boolean(video), error, equalizerAvailable: Boolean(globalThis.__yinampAudio),
     current: isAd ? 0 : cued ? player.getCurrentTime() || 0 : video?.currentTime || 0,
     duration: isAd || !Number.isFinite(video?.duration) ? 0 : video.duration,
     volume: globalThis.__yinampAudio?.volume ?? (typeof player?.getVolume === 'function' ? player.getVolume() : video ? video.volume * 100 : 75),
@@ -34,8 +35,11 @@ export function readPage() {
 export function controlPage(command) {
   const video = document.querySelector('video.html5-main-video') ?? document.querySelector('video');
   const player = document.querySelector('#movie_player');
-  const autonav = document.querySelector('.ytp-autonav-toggle-button');
-  if (autonav?.getAttribute?.('aria-checked') === 'true') autonav.click();
+  if (command.type === 'autoplay-off') {
+    const toggle = document.querySelector('.ytp-autonav-toggle-button');
+    if (toggle?.getAttribute?.('aria-checked') === 'true') toggle.click();
+    return { available: Boolean(toggle) };
+  }
   if (command.type === 'switch') {
     const method = command.autoplay ? 'loadVideoById' : 'cueVideoById';
     if (typeof player?.[method] !== 'function') return { error: 'This player could not switch recordings. Click VID to retry.' };
