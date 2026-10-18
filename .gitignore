@@ -4,3 +4,11 @@ node_modules/
 coverage/
 test-results/
 work/qa/
+
+# Generated demo and local credentials
+dist/
+.env
+.env.*
+!.env.example
+*.log
+*.jsonl
