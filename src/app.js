@@ -71,7 +71,13 @@ let equalizerControls;
 const player = new Player({
   onEqualizerAvailability: available => equalizerControls?.setAvailable(available),
   onSpectrum: data => visualizer.update(data),
+  onReconnecting() {
+    ui.playback.value = 'CONNECTING';
+    $('#connection-light').innerHTML = '<span class="connection-dot"></span> RECONNECTING';
+    $('#video-placeholder-note').textContent = 'Reconnecting to YouTube…';
+  },
   onReady() {
+    clearPlayerError();
     player.volume(ui.volume.value, ui.muted.value);
     player.equalizer?.(state.equalizer);
     $('#connection-light').innerHTML = '<span class="connection-dot"></span> CONNECTED';
@@ -143,6 +149,7 @@ const player = new Player({
     renderVersions();
     $('#player-error-message').textContent = message;
     $('#player-error').hidden = false;
+    $('#video-placeholder').hidden = true;
     $('#connection-light').innerHTML = '<span class="connection-dot"></span> UNAVAILABLE';
     $('#connection-light').classList.remove('connected');
     panels.refresh();
