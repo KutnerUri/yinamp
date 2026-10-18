@@ -4,6 +4,7 @@ node_modules/
 coverage/
 test-results/
 work/qa/
+.history
 
 # Generated demo and local credentials
 dist/
