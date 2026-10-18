@@ -6,7 +6,7 @@
 
 A tiny pet project with one foot in the 2000s and the other in a YouTube queue.
 
-[Get it running](#press-play) · [Player guide](docs/player-guide.md) · [MIT license](LICENSE)
+[Try the demo](https://kutneruri.github.io/yinamp/) · [Get it running](#press-play) · [Player guide](docs/player-guide.md) · [MIT license](LICENSE)
 
 ![Yinamp browser demo: classic gray windows, green display, equalizer and playlist editor](docs/images/yinamp-player.jpg)
 
@@ -22,7 +22,7 @@ Yinamp wants some of that back. A familiar, Winamp-inspired interface, rebuilt f
 
 ## The actual experiment
 
-This is a pet project exploring how far agentic code building can go with the bare minimum of human intervention. The human brings the idea, taste, nudges, and occasional “that button should probably work.” Coding agents do the bulk of the implementation and iteration.
+This is a pet project exploring how far agentic code building can go with the bare minimum of human intervention. The human brings the idea, taste, nudges, and occasional "that button should probably work." Coding agents do the bulk of the implementation and iteration.
 
 A known interface gives the experiment something concrete to aim at. The nostalgia sets the visual direction; streaming, browser restrictions, persistent state, and desktop integration supply the interesting problems.
 
@@ -39,7 +39,7 @@ pnpm install
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173**. Click **+ ADD**, paste a YouTube video link, and hit play. Drag the title bars. Try **Skins**. Make yourself at home.
+Open **http://127.0.0.1:5173**. Make yourself at home.
 
 For the Electron desktop prototype:
 
@@ -47,23 +47,7 @@ For the Electron desktop prototype:
 npm run desktop
 ```
 
-The desktop version adds a native YouTube player, account sign-in, personal playlists and mixes, and deeper music discovery. The runtime may download on first launch. This is a development app, not a signed installer.
-
-## Live on the world wide web
-
-The repository includes a GitHub Pages deployment workflow. Once enabled, the live demo URL appears in the repository's **Deployments → github-pages** entry and **Settings → Pages**. The permanent link will be added here when the repository exists.
-
-The demo runs the real browser interface: add individual YouTube videos, manage your queue, move windows, and try skins. YouTube decides which videos can play in embeds; availability, region, ads, and browser autoplay rules still apply. Playback needs a click.
-
-| Feature                          | Pages demo                   | Local browser             | Desktop prototype   |
-| -------------------------------- | ---------------------------- | ------------------------- | ------------------- |
-| Windows, skins, queue, save/load | Yes                          | Yes                       | Yes                 |
-| YouTube playback                 | Embedded player              | Embedded player           | Native watch page   |
-| Music search & discovery         | Needs local app              | Local server              | Desktop integration |
-| Personal library & account       | —                            | —                         | Yes                 |
-| Playlist links                   | Embed preview when available | Preview + server fallback | Desktop integration |
-
-GitHub Pages hosts static files, so the demo cannot run the Node server or desktop account features. It tells you this up front instead of pretending to search.
+The runtime may download on first launch. This is a development app, not a signed installer.
 
 ## A few honest rough edges
 
@@ -81,7 +65,7 @@ npm test              # run the test suite
 npm run build:pages   # assemble the static demo in dist/
 ```
 
-The [player guide](docs/player-guide.md) covers controls, skins, playlist imports, architecture, and desktop troubleshooting. [TODO.md](TODO.md) and the other development notes show the work in progress, warts included.
+See the [player guide](docs/player-guide.md) for details and [TODO.md](TODO.md) for the work in progress, warts included.
 
 Bug reports, small fixes, and delightfully unnecessary skins are welcome. Describe what you expected, what happened, and whether you used the browser demo, local browser, or desktop app. Please keep cookies, credentials, and personal diagnostic data out of public issues.
 
@@ -96,8 +80,6 @@ Dependencies keep their own licenses. The Pages build includes the Preact Signal
 <div align="center">
 
 **✦ UNDER CONSTRUCTION, IN THE GRAND TRADITION OF THE INTERNET ✦**
-
-No visitor counter. You're still visitor number 000001 in our hearts.
 
 <div align=center><img src='https://www.counter12.com/img-wBYwzb4DwBbW0220-26.gif' border='0' alt='free counter'></div>
 

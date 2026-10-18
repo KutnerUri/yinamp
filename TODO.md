@@ -4,6 +4,13 @@ Updated: 2026-10-14. Work proceeds in the order below. Checked items have
 implementation/test evidence or an explicit user confirmation. An unchecked
 verification item is not a claim that its implementation is missing.
 
+## Web demo hosting — exploration queued (2026-10-18)
+
+- [ ] Evaluate Cloudflare hosting for the web app and a backend for music search, discovery, playlist listing, metadata, and track-version lookup. Consider Workers plus static assets or Pages plus Functions; investigate runtime compatibility before choosing an architecture.
+- [ ] Verify real YouTube upstream access from Cloudflare, provider restrictions/rate limits, timeout and response-size limits, caching, costs, and abuse controls. A deployed search endpoint must not become an unrestricted proxy.
+- [ ] Separate what a hosted backend can restore from what still depends on Electron. Investigate supported browser account/library authentication separately; hosting the current server does not transfer the desktop YouTube session into an iframe.
+- [ ] Keep the static Pages demo useful with featured public playlists while hosting is evaluated. Demo presets must not populate the local or desktop libraries or overwrite a saved queue on startup.
+
 ## 1. Inline music library and playlist loading — complete
 
 - [x] Add a permanent Winamp-style library below the player and queue.
