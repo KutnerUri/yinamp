@@ -1,3 +1,4 @@
+import { icon } from './icons.js';
 import { signal, computed, effect } from '@preact/signals-core';
 
 // Scalar UI state is reactive; queue edits, player commands and saves stay explicit.
@@ -26,7 +27,7 @@ export function bindPlayerUI(ui, { root = document, onLayout, onInactive }) {
   const disposers = [
     effect(() => {
       $('#mute').setAttribute('aria-pressed', String(ui.muted.value));
-      $('#volume').value = ui.volume.value;
+      if (Number($('#volume').value) !== ui.volume.value) $('#volume').value = ui.volume.value;
       $('#volume-value').textContent = volumeLabel.value;
     }),
     effect(() => $('#shuffle').setAttribute('aria-pressed', String(ui.shuffle.value))),
@@ -47,7 +48,7 @@ export function bindPlayerUI(ui, { root = document, onLayout, onInactive }) {
     effect(() => {
       const playback = ui.playback.value;
       $('#playback-state').textContent = playback;
-      $('#play-indicator').textContent = playback === 'PLAYING' ? '▶' : playback === 'PAUSED' ? 'Ⅱ' : '■';
+      $('#play-indicator').innerHTML = icon(playback === 'PLAYING' ? 'play' : playback === 'PAUSED' ? 'pause' : 'stop');
       root.body.classList.toggle('is-playing', playback === 'PLAYING');
       $('#play').setAttribute('aria-pressed', String(playback === 'PLAYING'));
       $('#pause').setAttribute('aria-pressed', String(playback === 'PAUSED'));
@@ -75,4 +76,17 @@ export function bindPlayerUI(ui, { root = document, onLayout, onInactive }) {
     previousId = selectedId;
   }));
   return () => disposers.forEach(dispose => dispose());
+}
+
+// Provider volume reports can lag behind local input, especially over desktop IPC.
+export function createVolumeSync(now = () => performance.now()) {
+  let pending = null;
+  return {
+    request(volume, muted) { pending = { volume, muted, until: now() + 1500 }; },
+    accepts({ volume, muted }) {
+      if (!Number.isFinite(volume)) return false;
+      if (!pending || now() >= pending.until) { pending = null; return true; }
+      return Math.round(volume) === Math.round(pending.volume) && muted === pending.muted;
+    },
+  };
 }

@@ -1,3 +1,4 @@
+import { icon } from './icons.js';
 import { musicResultURL } from './search-all-data.js';
 import { libraryAccountIdentity, libraryAccountChanged } from './library-account.js';
 import { createLoader, createLibrarySkeleton } from './loading-ui.js';
@@ -32,9 +33,9 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
     const button = document.createElement('button'); button.type = 'button'; button.id = `library-tab-${id}`; button.dataset.libraryTab = id; button.setAttribute('role', 'tab'); button.setAttribute('aria-controls', 'library-results'); button.setAttribute('aria-selected', 'false'); button.tabIndex = -1;
     button.className = 'search-tab-label'; button.textContent = query; button.onclick = () => select(id);
     const pin = document.createElement('button'); pin.type = 'button'; pin.className = 'search-tab-pin';
-    const updatePin = () => { pin.textContent = tab.pinned ? '◆' : '◇'; pin.setAttribute('aria-label', `${tab.pinned ? 'Unpin' : 'Pin'} search ${query}`); pin.setAttribute('aria-pressed', String(tab.pinned)); wrapper.classList.toggle('pinned', tab.pinned); };
+    const updatePin = () => { pin.innerHTML = icon('pin'); pin.setAttribute('aria-label', `${tab.pinned ? 'Unpin' : 'Pin'} search ${query}`); pin.setAttribute('aria-pressed', String(tab.pinned)); wrapper.classList.toggle('pinned', tab.pinned); };
     pin.onclick = () => { tab.pinned = !tab.pinned; updatePin(); savePins(); }; updatePin();
-    const close = document.createElement('button'); close.type = 'button'; close.className = 'search-tab-close'; close.textContent = '×'; close.setAttribute('aria-label', `Close search ${query}`);
+    const close = document.createElement('button'); close.type = 'button'; close.className = 'search-tab-close'; close.innerHTML = icon('close'); close.setAttribute('aria-label', `Close search ${query}`);
     close.onclick = () => { const active = section === id; searches.delete(id); views.delete(id); wrapper.remove(); savePins(); if (active) select(desktop ? 'mine' : 'discover'); onLayout(); };
     wrapper.append(button, pin, close); $('.library-tabs').append(wrapper); return id;
   }
@@ -91,7 +92,7 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
         const card = document.createElement('div'); card.className = `library-card song-card${item.topResult?' top-result':''}`;
         const actions = document.createElement('span'); actions.className = 'song-actions';
         for (const [label, autoplay] of (['song','video'].includes(item.kind) ? [['▶ PLAY NOW', true], ['+ QUEUE', false]] : [['OPEN IN YOUTUBE MUSIC', null]])) {
-          const action = document.createElement('button'); action.type = 'button'; action.textContent = label; action.setAttribute('aria-label', `${autoplay===null?'Open in YouTube Music':autoplay ? 'Play' : 'Add to queue'} ${item.title}`);
+          const action = document.createElement('button'); action.type = 'button'; action.className = 'metal small-button'; action.textContent = label; action.setAttribute('aria-label', `${autoplay===null?'Open in YouTube Music':autoplay ? 'Play' : 'Add to queue'} ${item.title}`);
           action.disabled = Boolean(opening); action.onclick = () => { if (opening) return; try { if(autoplay===null){const url=musicResultURL(item);if(desktop)void window.yinampDesktop.openMusicResult(item).catch(error=>message(cleanError(error),true));else window.open(url,'_blank','noopener');return;} onSong(item, autoplay); message(`${autoplay ? 'Playing' : 'Queued'} ${item.title}.`); } catch (error) { message(cleanError(error), true); } }; actions.append(action);
         }
         play.remove(); copy.append(actions); card.append(art, copy); root.append(card);
@@ -165,7 +166,7 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
   $('#library-refresh').onclick = () => void load(true);
   const input = $('#library-filter'), suggestions = document.createElement('div'); suggestions.id = 'library-suggestions'; suggestions.className = 'library-suggestions'; suggestions.setAttribute('role', 'listbox'); suggestions.hidden = true;
   const field = document.createElement('div'); field.className = 'library-search-field'; input.before(field); field.append(input);
-  const clearButton = document.createElement('button'); clearButton.id = 'library-filter-clear'; clearButton.type = 'button'; clearButton.textContent = '×'; clearButton.setAttribute('aria-label', 'Clear search text'); clearButton.hidden = !input.value;
+  const clearButton = document.createElement('button'); clearButton.id = 'library-filter-clear'; clearButton.type = 'button'; clearButton.innerHTML = icon('close'); clearButton.setAttribute('aria-label', 'Clear search text'); clearButton.hidden = !input.value;
   clearButton.onclick = () => { input.value = ''; hideSuggestions(); render(); input.focus(); }; field.append(clearButton, suggestions);
   input.setAttribute('role', 'combobox'); input.setAttribute('aria-autocomplete', 'list'); input.setAttribute('aria-controls', suggestions.id); input.setAttribute('aria-expanded', 'false');
   let suggestionTimer, suggestionVersion = 0, suggestionIndex = -1, suggestionValues = [], suggestionController;

@@ -131,3 +131,18 @@ test('actual end markers and ended requested media finish the track',()=>{
  assert.equal(didProviderAdvance({id:'ZIDqxZKqTK4',state:0},'ZIDqxZKqTK4',true,true),true);
  assert.equal(didProviderAdvance({id:'ZIDqxZKqTK4',state:0,isAd:true},'ZIDqxZKqTK4',true,true),false);
 });
+
+
+test('desktop fallback applies zero after provider unmute restores its minimum', t => {
+  const previous = globalThis.document;
+  t.after(() => { globalThis.document = previous; });
+  let volume = 5;
+  const video = {};
+  const player = {
+    unMute() { volume = 5; },
+    setVolume(value) { volume = value; },
+  };
+  globalThis.document = { querySelector: selector => selector === '#movie_player' ? player : video };
+  controlPage({ type: 'volume', value: 0, muted: false });
+  assert.equal(volume, 0);
+});

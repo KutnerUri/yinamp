@@ -58,12 +58,13 @@ export function controlPage(command) {
   if (command.type === 'seek') video.currentTime = Math.min(command.value, Number.isFinite(video.duration) ? video.duration : command.value);
   if (command.type === 'volume') {
     if (globalThis.__yinampAudio) { globalThis.__yinampAudio.setVolume(command.value, command.muted === true); globalThis.__yinampAudio.attach(video); return { ok: true }; }
-    // The page player may normalize the HTML element's volume; prefer its own user-facing level.
-    if (typeof player?.setVolume === 'function') player.setVolume(command.value);
-    else video.volume = command.value / 100;
+    // Unmute first: the provider may restore a nonzero level when unmuting.
     if (command.muted && typeof player?.mute === 'function') player.mute();
     else if (!command.muted && typeof player?.unMute === 'function') player.unMute();
     else video.muted = command.muted === true;
+    // Prefer the provider's user-facing level over normalized media volume.
+    if (typeof player?.setVolume === 'function') player.setVolume(command.value);
+    else video.volume = command.value / 100;
   }
   return { ok: true };
 }

@@ -207,3 +207,18 @@ test('Pause cancels a queued play request, and initialization avoids cueing the 
   adapter.play(); adapter.pause(); adapter.player.emit(5);
   assert.equal(calls.filter(call => call[0] === 'play').length, 0);
 });
+
+
+test('zero volume is applied after unmute restores a provider level', () => {
+  let volume = 5;
+  const calls = [];
+  const adapter = Object.create(YouTubePlayer.prototype);
+  adapter.ready = true;
+  adapter.player = {
+    unMute() { calls.push('unmute'); volume = 5; },
+    setVolume(value) { calls.push(value); volume = value; },
+  };
+  adapter.volume(0, false);
+  assert.equal(volume, 0);
+  assert.deepEqual(calls, ['unmute', 0]);
+});

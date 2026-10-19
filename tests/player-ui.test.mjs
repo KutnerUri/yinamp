@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { batch } from '@preact/signals-core';
 import { initialState, nextTrackIndex } from '../src/core.js';
-import { createPlayerUI, savedPlayerState, bindPlayerUI } from '../src/player-ui.js';
+import { createPlayerUI, savedPlayerState, bindPlayerUI, createVolumeSync } from '../src/player-ui.js';
 
 function fixture(t) {
   const nodes = new Map();
@@ -98,4 +98,26 @@ test('saved settings and queue navigation use current signal values', t => {
   assert.equal(restored.repeat, 'one');
   assert.equal(restored.visibility.playlist, false);
   assert.equal(saved.playlist, state.playlist, 'Queue data remains explicit');
+});
+
+
+test('local zero volume survives delayed provider reports, including out-of-order reports after acknowledgment', () => {
+  let now = 0;
+  const sync = createVolumeSync(() => now);
+  sync.request(0, false);
+  assert.equal(sync.accepts({ volume: 7, muted: false }), false);
+  assert.equal(sync.accepts({ volume: 0, muted: false }), true);
+  assert.equal(sync.accepts({ volume: 3, muted: false }), false);
+  now = 1500;
+  assert.equal(sync.accepts({ volume: 20, muted: false }), true, 'External volume changes resume after the settling period');
+  assert.equal(sync.accepts({ muted: false }), false);
+});
+
+test('latest volume or mute request supersedes an earlier pending change', () => {
+  const sync = createVolumeSync(() => 0);
+  sync.request(0, false);
+  sync.request(50, true);
+  assert.equal(sync.accepts({ volume: 0, muted: false }), false);
+  assert.equal(sync.accepts({ volume: 50, muted: false }), false);
+  assert.equal(sync.accepts({ volume: 50, muted: true }), true);
 });

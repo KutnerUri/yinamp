@@ -163,7 +163,7 @@ export class YouTubePlayer {
   pause() { this.playWhenCued = false; if (this.pending) this.pending.autoplay = false; if (this.ready) this.player.pauseVideo(); }
   stop() { this.pending = null; this.playWhenCued = false; if (this.ready) { this.player.pauseVideo(); this.player.seekTo(0, true); this.player.pauseVideo(); } }
   seek(seconds) { if (this.ready) this.player.seekTo(seconds, true); }
-  volume(value, muted) { if (this.ready) { this.player.setVolume(value); this.player[muted ? 'mute' : 'unMute'](); } }
+  volume(value, muted) { if (this.ready) { this.player[muted ? 'mute' : 'unMute'](); this.player.setVolume(value); } }
   progress() { return this.ready ? { current: this.player.getCurrentTime() || 0, duration: this.player.getDuration() || 0, volume: this.player.getVolume(), muted: this.player.isMuted() } : { current: 0, duration: 0 }; }
   destroy() { this.generation++; clearTimeout(this.readyTimer); clearTimeout(this.reconnectTimer); this.ready = false; this.initializing = false; this.player?.destroy(); this.player = null; }
 }

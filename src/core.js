@@ -11,7 +11,7 @@ export const LEGACY_DEMO_TRACKS = [
 ];
 export const DEFAULT_TRACKS = [];
 export const SKINS = {
-  classic: { version: 1, name: 'Classic', colors: { shell: '#30313f', edge: '#7c7e91', accent: '#a7ff48', screen: '#080e08', text: '#dddde7', button: '#aeb0bf', desktop: '#14151e' } },
+  classic: { version: 1, name: 'Classic', colors: { shell: '#30313f', edge: '#7c7e91', accent: '#a7ff48', screen: '#080e08', text: '#dddde7', button: '#b0b1af', desktop: '#14151e' } },
   amber: { version: 1, name: 'Amber', colors: { shell: '#3d332d', edge: '#9b8773', accent: '#ffd16d', screen: '#160e06', text: '#f0e1ce', button: '#c2a78c', desktop: '#1c1714' } },
   ice: { version: 1, name: 'Ice', colors: { shell: '#293747', edge: '#6f90ab', accent: '#6ee8ff', screen: '#06111b', text: '#dcecf6', button: '#9ebcd2', desktop: '#111b28' } },
 };

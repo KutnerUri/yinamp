@@ -1,3 +1,4 @@
+import { icon } from './icons.js';
 import { createLoader } from './loading-ui.js';
 import { cleanVersions, playbackTrack, versionMode, recordingControl } from './track-versions.js';
 import { normalizePlaylistIdentity, STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp } from './core.js';
@@ -10,11 +11,12 @@ import { readPlaylistWithFallback } from './playlist-import.js';
 import { renderAccount } from './account-ui.js';
 import { setupMusicLibrary } from './library-ui.js';
 import { batch, effect } from '@preact/signals-core';
-import { createPlayerUI, savedPlayerState, bindPlayerUI } from './player-ui.js';
+import { createPlayerUI, savedPlayerState, bindPlayerUI, createVolumeSync } from './player-ui.js';
 import { setupPlaylistNavigation } from './playlist-navigation.js';
 import { createDebouncedSave } from './persistence.js';
 
 const $ = selector => document.querySelector(selector);
+for (const node of document.querySelectorAll('[data-icon]')) node.innerHTML = icon(node.dataset.icon);
 let stored;
 let storageAvailable = true;
 try { stored = window.yinampDesktop ? await window.yinampDesktop.readState() : JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { storageAvailable = false; }
@@ -25,6 +27,8 @@ const ui = createPlayerUI(state);
 const refreshPlaylistNavigation = setupPlaylistNavigation($('#playlist'), $('#playlist-current'));
 const snapshot = () => savedPlayerState(state, ui);
 let seeking = false;
+let adjustingVolume = false;
+const volumeSync = createVolumeSync();
 let stopped = false;
 let hasError = false;
 let wantsPlayback = false;
@@ -351,12 +355,12 @@ function renderPlaylist() {
     select.addEventListener('dblclick', () => selectTrack(track.id, true));
     const tools = document.createElement('div'); tools.className = 'track-tools';
     if (track.unavailable) {
-      const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = '↻'; retry.dataset.action = 'retry'; retry.setAttribute('aria-label', `Retry ${track.title}`); retry.title = 'Retry this video'; retry.onclick = () => retryTrack(track.id);
-      const open = document.createElement('a'); open.textContent = '↗'; open.href = `https://www.youtube.com/watch?v=${track.id}`; open.target = '_blank'; open.rel = 'noopener noreferrer'; open.setAttribute('aria-label', `Open ${track.title} on YouTube`); open.title = 'Open on YouTube';
+      const retry = document.createElement('button'); retry.type = 'button'; retry.innerHTML = icon('refresh'); retry.dataset.action = 'retry'; retry.setAttribute('aria-label', `Retry ${track.title}`); retry.title = 'Retry this video'; retry.onclick = () => retryTrack(track.id);
+      const open = document.createElement('a'); open.innerHTML = icon('external'); open.href = `https://www.youtube.com/watch?v=${track.id}`; open.target = '_blank'; open.rel = 'noopener noreferrer'; open.setAttribute('aria-label', `Open ${track.title} on YouTube`); open.title = 'Open on YouTube';
       tools.append(retry, open);
     }
-    for (const [action, label, symbol] of [['up', 'Move up', '↑'], ['down', 'Move down', '↓'], ['remove', 'Remove', '×']]) {
-      const button = document.createElement('button'); button.type = 'button'; button.textContent = symbol; button.dataset.action = action;
+    for (const [action, label, symbol] of [['up', 'Move up', 'up'], ['down', 'Move down', 'down'], ['remove', 'Remove', 'close']]) {
+      const button = document.createElement('button'); button.type = 'button'; button.innerHTML = icon(symbol); button.dataset.action = action;
       button.setAttribute('aria-label', `${label} ${track.title}`);
       button.disabled = (action === 'up' && index === 0) || (action === 'down' && index === state.playlist.length - 1);
       button.addEventListener('click', () => action === 'remove' ? removeTrack(track.id) : moveTrack(track.id, action === 'up' ? -1 : 1));
@@ -453,8 +457,8 @@ function play() {
 }
 function pause() { playIntentPending = false; if (switchFallback) switchFallback.autoplay = false; playbackRequested = false; clearTimeout(skipTimer); wantsPlayback = false; if (!player.ready) loadRecording(currentTrack(), false); player.pause(); }
 function stop() { playIntentPending = false; if (switchFallback) switchFallback.autoplay = false; playbackRequested = false; clearTimeout(skipTimer); stopped = true; wantsPlayback = false; player.stop(); if (!player.ready) loadRecording(currentTrack(), false); ui.playback.value = currentTrack() ? 'STOPPED' : 'EMPTY'; $('#time').textContent = '00:00'; $('#seek').value = 0; }
-function setVolume(value) { batch(() => { ui.volume.value = clamp(value, 0, 100); ui.muted.value = false; }); player.volume(ui.volume.value, ui.muted.value); persist(); }
-function toggleMute() { ui.muted.value = !ui.muted.value; player.volume(ui.volume.value, ui.muted.value); persist(); }
+function setVolume(value) { batch(() => { ui.volume.value = clamp(value, 0, 100); ui.muted.value = false; }); volumeSync.request(ui.volume.value, ui.muted.value); player.volume(ui.volume.value, ui.muted.value); persist(); }
+function toggleMute() { ui.muted.value = !ui.muted.value; volumeSync.request(ui.volume.value, ui.muted.value); player.volume(ui.volume.value, ui.muted.value); persist(); }
 function togglePanel(key) { ui.visibility[key].value = !ui.visibility[key].value; persist(); }
 function retryPlayer(autoplay = true) { playIntentPending = autoplay; clearTimeout(skipTimer); playbackRequested = autoplay; stopped = false; clearPlayerError(); ui.playback.value = 'CONNECTING'; $('#connection-light').innerHTML = '<span class="connection-dot"></span> CONNECTING'; $('#connection-light').classList.remove('connected'); $('#video-placeholder').hidden = false; $('#video-placeholder-note').textContent = 'Reconnecting to YouTube…'; player.initialize(); loadRecording(currentTrack(), autoplay); }
 
@@ -481,7 +485,7 @@ function updateProgress() {
     $('#seek').setAttribute('aria-valuetext', `${formatTime(progress.current)} of ${formatTime(progress.duration)}`);
     $('#seek').disabled = !progress.duration;
   }
-  if (Number.isFinite(progress.volume) && (Math.round(progress.volume) !== Math.round(ui.volume.value) || progress.muted !== ui.muted.value)) {
+  if (!adjustingVolume && volumeSync.accepts(progress) && (Math.round(progress.volume) !== Math.round(ui.volume.value) || progress.muted !== ui.muted.value)) {
     batch(() => { ui.volume.value = progress.volume; ui.muted.value = progress.muted; }); persist();
   }
 
@@ -552,6 +556,14 @@ $('#fullscreen').onclick = async () => { if (window.yinampDesktop) { player.full
 $('#play').onclick = play; $('#pause').onclick = pause; $('#stop').onclick = stop;
 $('#next').onclick = () => navigate(1); $('#previous').onclick = () => navigate(-1);
 $('#volume').oninput = event => setVolume(event.target.value);
+$('#volume').addEventListener('pointerdown', () => { adjustingVolume = true; });
+function finishVolumeAdjustment() {
+  if (adjustingVolume) volumeSync.request(ui.volume.value, ui.muted.value);
+  adjustingVolume = false;
+}
+window.addEventListener('pointerup', finishVolumeAdjustment);
+window.addEventListener('pointercancel', finishVolumeAdjustment);
+window.addEventListener('blur', finishVolumeAdjustment);
 $('#mute').onclick = toggleMute;
 $('#shuffle').onclick = () => { ui.shuffle.value = !ui.shuffle.value; persist(); };
 $('#repeat').onclick = () => { ui.repeat.value = { off: 'all', all: 'one', one: 'off' }[ui.repeat.value]; persist(); notify(`Repeat ${ui.repeat.value}.`); };
