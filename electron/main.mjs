@@ -428,7 +428,7 @@ async function start() {
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   origin = `http://127.0.0.1:${server.address().port}`;
   win = new BrowserWindow({
-    title: 'Yinamp', width: 1120, height: 940, minWidth: 960, minHeight: 700, backgroundColor: '#14151e', show: false,
+    title: 'Yinamp', icon: join(directory, '../src/app-icon.png'), width: 1120, height: 940, minWidth: 960, minHeight: 700, backgroundColor: '#14151e', show: false,
     webPreferences: { preload: join(directory, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, partition: INTERFACE_PARTITION },
   });
   configureContents(win.webContents, true);

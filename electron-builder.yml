@@ -1,5 +1,6 @@
 appId: com.kutneruri.yinamp
 productName: Yinamp
+icon: build/icon.png
 directories:
   output: release
 files:

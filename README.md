@@ -48,6 +48,7 @@ Each download includes the app and its runtime; **no Node.js or pnpm installatio
 The builds are unsigned and macOS builds are not notarized. macOS may require allowing Yinamp in **System Settings → Privacy & Security**; Windows may show a SmartScreen warning. Linux AppImages require FUSE support, or you can launch with `./Yinamp-latest-linux-x64.AppImage --appimage-extract-and-run`.
 
 The release includes checksums and the exact source commit. All four packages must build and pass bundled-app checks before the release is updated. If a build fails, the previous successful downloads remain available.
+[Download Yinamp for macOS, Windows, or Linux](https://github.com/KutnerUri/yinamp/releases/tag/latest-build). No Node.js needed. These unsigned, experimental builds update after successful builds on `main`.
 
 ### Run from source
 

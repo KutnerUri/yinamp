@@ -12,7 +12,15 @@ await cp(new URL('../node_modules/@preact/signals-core/LICENSE', import.meta.url
 let html = await readFile(new URL('index.html', root), 'utf8');
 html = html.replaceAll('"/src/', '"./src/').replace('<script type="module" src="./src/app.js"></script>', '<script type="module" src="./src/pages-demo.js"></script>');
 html = html.replace('href="/"', 'href="./"');
-html = html.replace('<body>', '<body>\n  <aside style="padding:12px 18px;color:#a7ff48;background:#080e08;font:13px monospace;text-align:center">✦ LIVE BROWSER DEMO · Paste a YouTube video with + ADD. <a style="color:inherit" href="https://github.com/KutnerUri/yinamp#press-play" target="_blank" rel="noopener noreferrer">Run the desktop app for live search, your personal library &amp; more ↗</a></aside>');
+html = html.replace('<body>', `<body>
+  <aside class="demo-banner" aria-label="Desktop app downloads">
+    <p><strong>✦ LIVE BROWSER DEMO</strong> · Get the desktop app for your library &amp; live search.</p>
+    <div class="demo-downloads">
+      <a id="desktop-download" class="download-button" href="https://github.com/KutnerUri/yinamp/releases/tag/latest-build">Download desktop app ↗</a>
+      <span id="mac-downloads" hidden>Download for macOS: <a href="https://github.com/KutnerUri/yinamp/releases/download/latest-build/Yinamp-latest-mac-arm64.dmg">Apple Silicon</a> · <a href="https://github.com/KutnerUri/yinamp/releases/download/latest-build/Yinamp-latest-mac-x64.dmg">Intel</a></span>
+      <a class="all-downloads" href="https://github.com/KutnerUri/yinamp/releases/tag/latest-build">All downloads ↗</a>
+    </div>
+  </aside>`);
 await writeFile(new URL('index.html', output), html);
 await writeFile(new URL('.nojekyll', output), '');
 console.log('GitHub Pages demo built in dist/ (relative paths support any repository name).');

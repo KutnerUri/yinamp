@@ -1,5 +1,8 @@
 // Only loaded by the static Pages build. The local and desktop apps keep their APIs.
 import { demoAPIResponse } from './pages-api.js';
+import { setupDesktopDownload } from './downloads.js';
+
+void setupDesktopDownload(navigator, document);
 
 const nativeFetch = window.fetch.bind(window);
 window.fetch = (input, options) => {
