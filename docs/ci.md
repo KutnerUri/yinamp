@@ -13,6 +13,8 @@ After the regular tests, four parallel jobs package and check Apple Silicon Mac,
 
 These are integration tests of the packaged runtime; they do not automate the operating system's installer or disk image interface.
 
+They live in `tests/desktop/package-smoke.mjs` and `tests/desktop/lifecycle.mjs`. CI runs them explicitly against a packaged app; `npm test` runs the regular `tests/*.test.mjs` suite. The `scripts/` directory contains build and publishing tools.
+
 The Linux job uses Xvfb for a virtual display. Chromium's `--no-sandbox` flag is restricted to this isolated Linux CI test process; it is not added to the shipped app. Automatic update checks are paused in the test profile, so the tests do not fetch the public update feed or depend on releases already being online.
 
 All four jobs must pass before `publish` can update the downloads or update feed. A failed job leaves the previous published build available. On failure, a `failure-<platform>` artifact retains process logs, a test report, updater state and startup diagnostics for seven days. Artifacts exclude the full Chromium profile and session data.

@@ -24,8 +24,6 @@ on:
       - 'tests/**'
       - 'scripts/prepare-build.mjs'
       - 'scripts/report-desktop.cjs'
-      - 'scripts/smoke-desktop.mjs'
-      - 'scripts/check-update-roundtrip.mjs'
       - 'scripts/create-update.mjs'
       - 'scripts/publish-latest.mjs'
   workflow_dispatch:
@@ -111,7 +109,7 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Desktop package smoke tests
-        run: '"$APP_EXECUTABLE" scripts/smoke-desktop.mjs "$APP_ARCHIVE"'
+        run: '"$APP_EXECUTABLE" tests/desktop/package-smoke.mjs "$APP_ARCHIVE"'
         env:
           ELECTRON_RUN_AS_NODE: '1'
           APP_EXECUTABLE: ${{ matrix.executable }}
@@ -124,9 +122,9 @@ jobs:
           YINAMP_UPDATE_TEST_OUTPUT: test-results/updates-${{ matrix.runtime }}
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run --auto-servernum node scripts/check-update-roundtrip.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
+            xvfb-run --auto-servernum node tests/desktop/lifecycle.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
           else
-            node scripts/check-update-roundtrip.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
+            node tests/desktop/lifecycle.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
           fi
       - name: Prepare versioned application update
         run: node scripts/create-update.mjs "$APP_ARCHIVE" "$APP_PLATFORM"

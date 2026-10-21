@@ -1,4 +1,4 @@
-// Desktop lifecycle tests: node scripts/check-update-roundtrip.mjs <executable> <app.asar>
+// Desktop lifecycle tests: node tests/desktop/lifecycle.mjs <executable> <app.asar>
 // Uses only a temporary profile and synthetic local builds; does not publish or change real user data.
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, mkdir, open, copyFile } from 'node:fs/promises';
@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { UpdateStore, RELEASES, digest } from '../electron/update-store.mjs';
+import { UpdateStore, RELEASES, digest } from '../../electron/update-store.mjs';
 
 const [executable, archive] = process.argv.slice(2).map(value => resolve(value));
 if (!executable || !archive) throw new Error('Supply the packaged executable and archive');
