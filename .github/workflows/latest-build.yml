@@ -3,6 +3,31 @@ name: Latest desktop build
 on:
   push:
     branches: [main]
+    # Keep aligned with electron-builder.yml and the scripts used below.
+    paths:
+      - '.github/workflows/latest-build.yml'
+      - 'electron-builder.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.npmrc'
+      - '.node-version'
+      - '.nvmrc'
+      - 'build-info.json'
+      - 'index.html'
+      - 'LICENSE'
+      - '*.mjs'
+      - 'electron/**'
+      - 'src/**'
+      - 'skins/**'
+      - 'build/**'
+      - 'tests/**'
+      - 'scripts/prepare-build.mjs'
+      - 'scripts/report-desktop.cjs'
+      - 'scripts/smoke-desktop.mjs'
+      - 'scripts/check-update-roundtrip.mjs'
+      - 'scripts/create-update.mjs'
+      - 'scripts/publish-latest.mjs'
   workflow_dispatch:
 
 permissions:
@@ -32,6 +57,7 @@ jobs:
 
   build:
     needs: test
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -75,16 +101,33 @@ jobs:
       - run: pnpm install --frozen-lockfile
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Prepare Linux virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y xvfb libgtk-3-0t64 libnss3 libgbm1 libasound2t64
       - name: Package desktop app
         run: npm run build:desktop -- --${{ matrix.platform }} --${{ matrix.arch }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - name: Check bundled app and dependencies
+      - name: Desktop package smoke tests
         run: '"$APP_EXECUTABLE" scripts/smoke-desktop.mjs "$APP_ARCHIVE"'
         env:
           ELECTRON_RUN_AS_NODE: '1'
           APP_EXECUTABLE: ${{ matrix.executable }}
           APP_ARCHIVE: ${{ matrix.archive }}
+      - name: Desktop lifecycle tests (startup, update, rollback, recovery)
+        timeout-minutes: 5
+        env:
+          APP_EXECUTABLE: ${{ matrix.executable }}
+          APP_ARCHIVE: ${{ matrix.archive }}
+          YINAMP_UPDATE_TEST_OUTPUT: test-results/updates-${{ matrix.runtime }}
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum node scripts/check-update-roundtrip.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
+          else
+            node scripts/check-update-roundtrip.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
+          fi
       - name: Prepare versioned application update
         run: node scripts/create-update.mjs "$APP_ARCHIVE" "$APP_PLATFORM"
         env:
@@ -101,6 +144,20 @@ jobs:
             release/*.AppImage
             release/*.asar
             release/*.update.json
+      - name: Save failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failure-${{ matrix.runtime }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            test-results/updates-${{ matrix.runtime }}/process.log
+            test-results/updates-${{ matrix.runtime }}/report.json
+            test-results/updates-${{ matrix.runtime }}/update-state.json
+            test-results/updates-${{ matrix.runtime }}/startup-diagnostics.jsonl
+            release/builder-debug.yml
+            release/builder-effective-config.yaml
 
   publish:
     needs: build
