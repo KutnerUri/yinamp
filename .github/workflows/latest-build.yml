@@ -39,21 +39,25 @@ jobs:
           - os: macos-latest
             platform: mac
             arch: arm64
+            runtime: darwin-arm64
             executable: release/mac-arm64/Yinamp.app/Contents/MacOS/Yinamp
             archive: release/mac-arm64/Yinamp.app/Contents/Resources/app.asar
           - os: macos-15-intel
             platform: mac
             arch: x64
+            runtime: darwin-x64
             executable: release/mac/Yinamp.app/Contents/MacOS/Yinamp
             archive: release/mac/Yinamp.app/Contents/Resources/app.asar
           - os: windows-2025
             platform: win
             arch: x64
+            runtime: win32-x64
             executable: release/win-unpacked/Yinamp.exe
             archive: release/win-unpacked/resources/app.asar
           - os: ubuntu-24.04
             platform: linux
             arch: x64
+            runtime: linux-x64
             executable: release/linux-unpacked/yinamp
             archive: release/linux-unpacked/resources/app.asar
     runs-on: ${{ matrix.os }}
@@ -81,6 +85,11 @@ jobs:
           ELECTRON_RUN_AS_NODE: '1'
           APP_EXECUTABLE: ${{ matrix.executable }}
           APP_ARCHIVE: ${{ matrix.archive }}
+      - name: Prepare versioned application update
+        run: node scripts/create-update.mjs "$APP_ARCHIVE" "$APP_PLATFORM"
+        env:
+          APP_ARCHIVE: ${{ matrix.archive }}
+          APP_PLATFORM: ${{ matrix.runtime }}
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
@@ -90,6 +99,8 @@ jobs:
             release/*.dmg
             release/*.exe
             release/*.AppImage
+            release/*.asar
+            release/*.update.json
 
   publish:
     needs: build
@@ -97,6 +108,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
       - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
@@ -106,40 +121,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          BUILD_SHA: ${{ github.sha }}
-          BUILD_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          current_sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
-          if [ "$current_sha" != "$BUILD_SHA" ]; then
-            echo 'Main has moved ahead; a newer workflow run will publish its build.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          cd downloads
-          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 4
-          sha256sum Yinamp-* > SHA256SUMS.txt
-          jq -n --arg commit "$BUILD_SHA" --arg run "$BUILD_RUN" \
-            '{commit: $commit, workflow: $run}' > BUILD-INFO.json
-          cat > ../release-notes.md <<EOF
-          Automatically built from main. Experimental, unsigned desktop downloads with the runtime included; no Node.js installation required.
-
-          Commit: $BUILD_SHA
-          Build: $BUILD_RUN
-
-          macOS: choose arm64 for Apple Silicon or x64 for Intel, open the DMG and drag Yinamp to Applications. These builds are not notarized; macOS may block opening them until you allow the app in Privacy & Security.
-          Windows: download the x64 EXE and run it. SmartScreen may show an unsigned-app warning.
-          Linux: download the x64 AppImage, make it executable and run it. Requires a desktop Linux system with FUSE support (or use the AppImage's --appimage-extract-and-run option).
-
-          Download again to update. SHA256SUMS.txt contains checksums; BUILD-INFO.json identifies the source commit. All platforms must build and pass bundled-app checks before publishing starts. A failed build leaves the previous downloads available.
-          EOF
-          if ! gh release view latest-build >/dev/null 2>&1; then
-            gh release create latest-build --target "$BUILD_SHA" \
-              --title 'Latest build' --prerelease --latest=false \
-              --notes-file ../release-notes.md ./*
-          else
-            gh release upload latest-build ./* --clobber
-            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/latest-build" \
-              -f sha="$BUILD_SHA" -F force=true
-            gh release edit latest-build --title 'Latest build' \
-              --prerelease --latest=false --notes-file ../release-notes.md
-          fi
+        run: node scripts/publish-latest.mjs downloads

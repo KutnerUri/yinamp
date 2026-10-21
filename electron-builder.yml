@@ -1,24 +1,30 @@
 appId: com.kutneruri.yinamp
 productName: Yinamp
 icon: build/icon.png
+afterAllArtifactBuild: scripts/report-desktop.cjs
 directories:
   output: release
 files:
   - package.json
+  - build-info.json
   - index.html
   - LICENSE
   - '*.mjs'
   - electron/**
   - '!electron/launch.mjs'
+  - '!electron/dev-branding.mjs'
   - src/**
   - skins/**
 asar: true
 npmRebuild: false
 artifactName: Yinamp-latest-${os}-${arch}.${ext}
 mac:
+  icon: build/icon.icns
   target: dmg
   category: public.app-category.music
   identity: null
+dmg:
+  icon: build/icon.icns
 win:
   target: portable
 linux:

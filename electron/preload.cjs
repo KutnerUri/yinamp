@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('yinampDesktop', {
+  ready: () => ipcRenderer.invoke('yinamp:ready'),
+  onFlushState: callback => ipcRenderer.on('yinamp:flush-state', async (_event, token) => {
+    try { await ipcRenderer.invoke('yinamp:save-state', callback()); ipcRenderer.send('yinamp:flushed', token); }
+    catch { /* The main process retains its last successful save on failure. */ }
+  }),
   openMusicResult: item => ipcRenderer.invoke('yinamp:open-music-result', item),
   readState: () => ipcRenderer.invoke('yinamp:read-state'),
   saveState: state => ipcRenderer.invoke('yinamp:save-state', state),

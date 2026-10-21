@@ -32,23 +32,7 @@ This isn't a claim that software now builds itself perfectly. Things break. Assu
 
 ## Press play
 
-### Download the desktop app
-
-[Latest build downloads](https://github.com/KutnerUri/yinamp/releases/tag/latest-build) update after every successful build on `main`. These are experimental builds of **Yinamp 1.2.0**, following the `redesign v1.2` milestone in the commit history. There are no stable releases yet.
-
-| System | Download | Run |
-| --- | --- | --- |
-| macOS, Apple Silicon | [DMG](https://github.com/KutnerUri/yinamp/releases/download/latest-build/Yinamp-latest-mac-arm64.dmg) | Open and drag Yinamp to Applications. |
-| macOS, Intel | [DMG](https://github.com/KutnerUri/yinamp/releases/download/latest-build/Yinamp-latest-mac-x64.dmg) | Open and drag Yinamp to Applications. |
-| Windows, x64 | [Portable EXE](https://github.com/KutnerUri/yinamp/releases/download/latest-build/Yinamp-latest-win-x64.exe) | Download and run. |
-| Linux, x64 | [AppImage](https://github.com/KutnerUri/yinamp/releases/download/latest-build/Yinamp-latest-linux-x64.AppImage) | Make executable and run. |
-
-Each download includes the app and its runtime; **no Node.js or pnpm installation is needed**. Internet access is required for YouTube. Downloads appear after the first successful workflow run. Download again to update; the app does not update itself.
-
-The builds are unsigned and macOS builds are not notarized. macOS may require allowing Yinamp in **System Settings → Privacy & Security**; Windows may show a SmartScreen warning. Linux AppImages require FUSE support, or you can launch with `./Yinamp-latest-linux-x64.AppImage --appimage-extract-and-run`.
-
-The release includes checksums and the exact source commit. All four packages must build and pass bundled-app checks before the release is updated. If a build fails, the previous successful downloads remain available.
-[Download Yinamp for macOS, Windows, or Linux](https://github.com/KutnerUri/yinamp/releases/tag/latest-build). No Node.js needed. These unsigned, experimental builds update after successful builds on `main`.
+[Download Yinamp for macOS, Windows, or Linux](https://github.com/KutnerUri/yinamp/releases/tag/latest-build). Runtime included. These unsigned, experimental builds download application updates quietly for the next launch; manage versions under **Yinamp → Updates**.
 
 ### Run from source
 
@@ -84,10 +68,7 @@ Plain HTML, CSS, and JavaScript; Preact Signals for reactive state; a small Node
 npm test              # run the test suite
 npm run build:pages   # assemble the static demo in dist/
 npm run build:desktop # package the desktop app for this computer in release/
-npm run pack:desktop  # create an unpacked desktop app in release/
 ```
-
-The **Latest desktop build** GitHub Action tests the project, packages all four downloads, checks the packaged server and runtime assets, and updates the `latest-build` prerelease. It runs on pushes to `main` and can also be started manually from GitHub Actions on `main`. It uses the repository's built-in token; no release secret is needed. Repository settings must allow Actions to write releases, and immutable releases must be disabled for this rolling release. Stable versioned releases can be added later.
 
 See the [player guide](docs/player-guide.md) for details and [TODO.md](TODO.md) for the work in progress, warts included.
 

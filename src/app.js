@@ -737,3 +737,5 @@ if (!storageAvailable) notify('Browser storage is unavailable. Use SAVE to expor
 window.addEventListener('pagehide', persistence.flush);
 window.addEventListener('beforeunload', persistence.flush);
 document.addEventListener('visibilitychange', () => { if (document.hidden) persistence.flush(); });
+window.yinampDesktop?.onFlushState?.(snapshot);
+void window.yinampDesktop?.ready?.();

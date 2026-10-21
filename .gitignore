@@ -9,6 +9,7 @@ work/qa/
 # Generated demo and local credentials
 dist/
 release/
+build-info.json
 .env
 .env.*
 !.env.example

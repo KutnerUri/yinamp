@@ -1,8 +1,10 @@
 // Run with the packaged Electron executable and ELECTRON_RUN_AS_NODE=1.
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { once } from 'node:events';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = pathToFileURL(resolve(process.argv[2]) + '/');
@@ -30,4 +32,25 @@ try {
 } finally {
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
+}
+
+// Exercise raw archive I/O inside Electron on every build platform, not just Node's filesystem.
+const { UpdateStore, digest, RELEASES } = await import(new URL('electron/update-store.mjs', root));
+const rawFS = createRequire(import.meta.url)('original-fs').promises;
+const bytes = await rawFS.readFile(resolve(process.argv[2]));
+const directory = await mkdtemp(join(tmpdir(), 'yinamp-packaged-update-'));
+try {
+  const bundled = JSON.parse(await readFile(new URL('build-info.json', root), 'utf8'));
+  const platform = `${process.platform}-${process.arch}`;
+  const manifest = { protocol: 1, id: 'build-900000001-1', number: 999999, attempt: 1, commit: 'a'.repeat(40), version: metadata.version, electron: process.versions.electron,
+    payloads: { [platform]: { size: bytes.length, sha256: digest(bytes), url: `${RELEASES}/download/build-900000001-1/Yinamp-${platform}.asar` } } };
+  const store = await new UpdateStore({ directory, bundled, bundledRoot: resolve(process.argv[2]), electron: process.versions.electron, platform }).load();
+  await store.begin(); await store.cleanExit(); await store.stage(manifest, bytes);
+  assert.equal(await store.begin(), store.archive(manifest.id));
+  assert.equal(await store.verify(manifest.id), true);
+  await store.healthy(); await store.rollback(); await store.cleanExit();
+  assert.equal(await store.begin(), resolve(process.argv[2]));
+  console.log('Packaged updater: archive integrity, staging, activation and rollback passed.');
+} finally {
+  await rawFS.rm(directory, { recursive: true, force: true });
 }

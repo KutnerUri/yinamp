@@ -1,0 +1,10 @@
+import { readFile, writeFile, copyFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { digest, RELEASES, buildID } from '../electron/update-store.mjs';
+const [archive, platform] = process.argv.slice(2);
+const metadata = JSON.parse(await readFile(new URL('../build-info.json', import.meta.url), 'utf8'));
+if (!buildID(metadata.id) || !/^(darwin-(arm64|x64)|win32-x64|linux-x64)$/.test(platform)) throw new Error('Update payloads require CI build metadata and a supported platform');
+const bytes = await readFile(archive);
+const filename = `Yinamp-${platform}.asar`;
+await copyFile(archive, join('release', filename));
+await writeFile(join('release', `${platform}.update.json`), JSON.stringify({ ...metadata, payloads: { [platform]: { size: bytes.length, sha256: digest(bytes), url: `${RELEASES}/download/${metadata.id}/${filename}` } } }, null, 2));

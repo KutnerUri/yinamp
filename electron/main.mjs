@@ -433,11 +433,20 @@ async function start() {
   });
   configureContents(win.webContents, true);
   createPlayerView();
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(process.platform === 'darwin' ? [{ label: 'Yinamp', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }] }] : []),
+  const updates = globalThis[Symbol.for('yinamp.updates')];
+  const rebuildMenu = () => Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'Yinamp', submenu: [
+      ...(process.platform === 'darwin' ? [{ role: 'about' }, { type: 'separator' }] : []),
+      { label: 'Updates', submenu: updates?.menu() ?? [{ label: 'Updates are available in the packaged app', enabled: false }] },
+      { type: 'separator' }, { role: 'quit' },
+    ] },
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: 'View', submenu: [{ label: 'Search mismatch log', click: () => shell.showItemInFolder(join(app.getPath('userData'), 'yinamp-search-mismatches.jsonl')) }, { role: 'reload' }, { role: 'toggleDevTools' }, { role: 'togglefullscreen' }] },
+    { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
   ]));
+  updates?.setMenuBuilder(rebuildMenu);
+  rebuildMenu();
+  ipcMain.handle('yinamp:ready', event => { trusted(event); updates?.rendererReady(); });
   ipcMain.handle('yinamp:read-state', async event => {
     trusted(event);
     try { return JSON.parse(await readFile(statePath, 'utf8')); } catch { return null; }
@@ -510,6 +519,7 @@ async function start() {
   accountPoll = setInterval(() => void refreshAccountStatus(), 4000);
   await win.loadURL(origin + '/');
   win.show();
+  app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
   win.on('leave-full-screen', () => send({ type: 'fullscreen', enabled: false }));
   win.on('closed', () => { clearInterval(poll); clearInterval(spectrumPoll); clearInterval(accountPoll); if (view.webContents && !view.webContents.isDestroyed()) view.webContents.close(); app.quit(); });
   app.on('before-quit', event => {
@@ -519,7 +529,17 @@ async function start() {
     library.invalidate();
     clearInterval(poll); clearInterval(spectrumPoll);
     clearInterval(accountPoll);
-    writeQueue.catch(() => {}).finally(() => { server.close(); app.quit(); });
+    const flush = new Promise(resolve => {
+      if (!win || win.isDestroyed()) return resolve();
+      const token = `${Date.now()}`;
+      let timer;
+      const finish = () => { clearTimeout(timer); ipcMain.removeListener('yinamp:flushed', listener); resolve(); };
+      const listener = (sender, value) => { if (allowedSender(sender) && value === token) finish(); };
+      ipcMain.on('yinamp:flushed', listener);
+      timer = setTimeout(finish, 2000);
+      win.webContents.send('yinamp:flush-state', token);
+    });
+    flush.then(() => writeQueue).catch(() => {}).finally(async () => { try { await updates?.cleanExit(); } finally { server.close(); app.quit(); } });
   });
 }
-app.whenReady().then(start).catch(error => { console.error(error); app.quit(); });
+app.whenReady().then(start).catch(error => { console.error(error); const updates = globalThis[Symbol.for('yinamp.updates')]; if (updates) void updates.fail(); else app.quit(); });
