@@ -1,0 +1,25 @@
+appId: com.kutneruri.yinamp
+productName: Yinamp
+directories:
+  output: release
+files:
+  - package.json
+  - index.html
+  - LICENSE
+  - '*.mjs'
+  - electron/**
+  - '!electron/launch.mjs'
+  - src/**
+  - skins/**
+asar: true
+npmRebuild: false
+artifactName: Yinamp-latest-${os}-${arch}.${ext}
+mac:
+  target: dmg
+  category: public.app-category.music
+  identity: null
+win:
+  target: portable
+linux:
+  target: AppImage
+  category: AudioVideo
