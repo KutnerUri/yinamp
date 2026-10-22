@@ -22,6 +22,10 @@ on:
       - 'skins/**'
       - 'build/**'
       - 'tests/**'
+      - 'launcher/**'
+      - 'scripts/build-desktop.mjs'
+      - 'scripts/build-compact.mjs'
+      - 'scripts/electron-runtime.mjs'
       - 'scripts/prepare-build.mjs'
       - 'scripts/report-desktop.cjs'
       - 'scripts/create-update.mjs'
@@ -38,7 +42,6 @@ concurrency:
 
 jobs:
   test:
-    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -51,7 +54,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: false
       - run: npm test
+      - name: Native launcher tests
+        run: go test ./...
+        working-directory: launcher
 
   build:
     needs: test
@@ -99,6 +109,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: false
+      - name: Native launcher platform tests
+        run: go test ./...
+        working-directory: launcher
       - name: Prepare Linux virtual display
         if: runner.os == 'Linux'
         run: |
@@ -125,6 +142,27 @@ jobs:
             xvfb-run --auto-servernum node tests/desktop/lifecycle.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
           else
             node tests/desktop/lifecycle.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
+          fi
+      - name: Compact launcher lifecycle tests (cached runtime, update, rollback)
+        timeout-minutes: 5
+        env:
+          APP_RUNTIME: release/checked-runtime-${{ matrix.runtime }}
+          APP_PLATFORM: ${{ matrix.runtime }}
+          APP_ARCHIVE: ${{ matrix.archive }}
+          YINAMP_UPDATE_TEST_OUTPUT: test-results/compact-${{ matrix.runtime }}
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            LAUNCHER="release/compact-${APP_PLATFORM}/Yinamp.app/Contents/MacOS/Yinamp"
+          elif [ "$RUNNER_OS" = Windows ]; then
+            LAUNCHER="release/compact-${APP_PLATFORM}/Yinamp.exe"
+          else
+            LAUNCHER="release/compact-${APP_PLATFORM}/yinamp"
+          fi
+          export YINAMP_TEST_RUNTIME_DIRECTORY="$APP_RUNTIME"
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum node tests/desktop/lifecycle.mjs "$LAUNCHER" "$APP_ARCHIVE"
+          else
+            node tests/desktop/lifecycle.mjs "$LAUNCHER" "$APP_ARCHIVE"
           fi
       - name: Prepare versioned application update
         run: node scripts/create-update.mjs "$APP_ARCHIVE" "$APP_PLATFORM"
@@ -154,10 +192,14 @@ jobs:
             test-results/updates-${{ matrix.runtime }}/report.json
             test-results/updates-${{ matrix.runtime }}/update-state.json
             test-results/updates-${{ matrix.runtime }}/startup-diagnostics.jsonl
+            test-results/compact-${{ matrix.runtime }}/*.log
+            test-results/compact-${{ matrix.runtime }}/*.json
+            test-results/compact-${{ matrix.runtime }}/*.jsonl
             release/builder-debug.yml
             release/builder-effective-config.yaml
 
   publish:
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-24.04
     permissions:

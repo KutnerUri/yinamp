@@ -1,7 +1,7 @@
 import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { digest, mergeManifests } from '../electron/update-store.mjs';
+import { digest, mergeManifests, validateRuntime } from '../electron/update-store.mjs';
 
 const directory = resolve(process.argv[2] || 'downloads');
 function gh(args, optional = false) {
@@ -28,12 +28,14 @@ for (const [platform, payload] of Object.entries(manifest.payloads)) {
   const bytes = await readFile(join(directory, `Yinamp-${platform}.asar`));
   if (bytes.length !== payload.size || digest(bytes) !== payload.sha256) throw new Error('Update package failed its publish integrity check');
 }
+// Electron is downloaded directly from its official releases by the launcher.
+for (const [platform, payload] of Object.entries(manifest.payloads)) validateRuntime(payload.runtime, manifest.electron, platform);
 const checksumFiles = [...installers, ...archives].sort();
 await writeFile(join(directory, 'SHA256SUMS.txt'), (await Promise.all(checksumFiles.map(async file => `${digest(await readFile(join(directory, file)))}  ${file}`))).join('\n') + '\n');
 await writeFile(join(directory, 'UPDATE.json'), JSON.stringify(manifest, null, 2) + '\n');
 await writeFile(join(directory, 'BUILD-INFO.json'), JSON.stringify({ ...metadata, workflow: `${process.env.GITHUB_SERVER_URL}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}` }, null, 2) + '\n');
 const notes = join(directory, 'release-notes.md');
-await writeFile(notes, `Yinamp ${manifest.version} · Build ${manifest.number}.${manifest.attempt}\n\nCommit: ${manifest.commit}\n\nDownload the DMG for your Mac (arm64 for Apple Silicon, x64 for Intel), portable EXE for Windows, or AppImage for Linux. No Node.js installation needed. These builds are unsigned; macOS and Windows may ask you to allow the app.\n\nApplication updates download silently and activate on the next launch. Yinamp → Updates: turn automatic updates on or off, or select a specific version. A newer Electron runtime needs a fresh desktop download.\n\nChecksums and exact build information are included. The ASAR files are application updates used by the launcher; use the DMG, EXE or AppImage for installation.\n`);
+await writeFile(notes, `Yinamp ${manifest.version} · Build ${manifest.number}.${manifest.attempt}\n\nCommit: ${manifest.commit}\n\nDownload the DMG for your Mac (arm64 for Apple Silicon, x64 for Intel), portable EXE for Windows, or AppImage for Linux. No Node.js installation needed. These builds are unsigned; macOS and Windows may ask you to allow the app.\n\nApplication updates download silently and activate on the next launch. Yinamp → Updates: turn automatic updates on or off, or select a specific version. Electron runtimes download automatically when needed and are cached between releases. The first launch requires an internet connection.\n\nChecksums and exact build information are included. The ASAR files are application updates used by the launcher; use the DMG, EXE or AppImage for installation.\n`);
 const assets = [...installers, ...archives, 'SHA256SUMS.txt', 'BUILD-INFO.json', 'UPDATE.json'].map(file => join(directory, file));
 const existing = gh(['release', 'view', manifest.id, '--json', 'isDraft'], true);
 if (!existing) {

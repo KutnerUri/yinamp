@@ -3,6 +3,7 @@ import { githubDownload, readManifest, listBuilds } from './update-network.mjs';
 import { RELEASES, compatible, newer } from './update-store.mjs';
 
 export function createUpdateController(store, { preview = false } = {}) {
+  let restartRequested = false;
   let status = '', busy = false, builds = store.state.recentBuilds ?? [], needsDesktop = false, rebuild = () => {}, startupTimer, healthTimer, checkTimer, stopped = false, scheduleGeneration = 0;
   const label = metadata => metadata?.number ? `${metadata.version} · Build ${metadata.number}.${metadata.attempt}` : `${metadata?.version ?? app.getVersion()} · ${preview ? 'Development' : 'Local build'}`;
   const refresh = () => rebuild();
@@ -33,7 +34,7 @@ export function createUpdateController(store, { preview = false } = {}) {
   }
   async function download(manifest, { automatic = false, pin = false } = {}) {
     if (preview) return false;
-    if (!compatible(manifest, store.electron, store.platform)) {
+    if (!compatible(manifest, store.electron, store.platform, store.runtimeManaged)) {
       needsDesktop = true;
       status = 'New desktop download required'; refresh();
       if (!automatic) await message('This build includes a newer desktop runtime. Choose “Download desktop app…” to install it. Your music and settings stay in place.');
@@ -78,6 +79,13 @@ export function createUpdateController(store, { preview = false } = {}) {
     if (manifest.id !== id) throw new Error('GitHub returned a different build');
     await download(manifest, { pin: true });
   }
+  // The native supervisor owns runtime selection and relaunches the stable bootstrap.
+  const relaunch = (bundled = false) => {
+    if (store.runtimeManaged) {
+      app.exit(bundled ? 77 : 76);
+    } else if (bundled) app.relaunch({ args: [...process.argv.slice(1), '--yinamp-bundled'] });
+    else app.relaunch();
+  };
   const controller = {
     setMenuBuilder(callback) { rebuild = callback; },
     menu() {
@@ -95,7 +103,12 @@ export function createUpdateController(store, { preview = false } = {}) {
       }).slice(0, 5);
       return [
         { label: 'Check for updates…', enabled: !busy, click: () => void check(true) },
-        { label: 'Restart to update', enabled: !preview && Boolean(store.state.pending) && !busy, click: () => { if (!preview) { app.relaunch(); app.quit(); } } },
+        { label: 'Restart to update', enabled: !preview && Boolean(store.state.pending) && !busy, click: () => {
+          if (preview) return;
+          if (store.runtimeManaged) restartRequested = true;
+          else app.relaunch();
+          app.quit();
+        } },
         { label: automatic ? 'Automatic updates' : 'Automatic updates disabled', type: 'checkbox', checked: automatic, enabled: !preview && !busy, click: item => { if (!preview) void action(async () => { await store.automatic(item.checked); status = ''; }).then(scheduleCheck); } },
         { label: 'Use specific version', enabled: !busy, submenu: [
           { label: label(current), type: 'checkbox', checked: true, enabled: !preview, click: () => void action(() => choose(current.id)) },
@@ -123,6 +136,7 @@ export function createUpdateController(store, { preview = false } = {}) {
       stopped = true;
       clearTimeout(startupTimer); clearTimeout(healthTimer); clearTimeout(checkTimer);
       if (!preview) await store.cleanExit();
+      if (restartRequested) app.exit(76);
     },
     async fail() {
       if (preview) { app.quit(); return; }
@@ -132,8 +146,8 @@ export function createUpdateController(store, { preview = false } = {}) {
         await dialog.showMessageBox({ type: 'error', title: 'Yinamp could not start', message: 'Please download a fresh copy of Yinamp. Your saved library and settings are still on this computer.' });
         app.exit(1); return;
       }
-      try { await store.reject(store.state.active, true); app.relaunch(); }
-      catch { app.relaunch({ args: [...process.argv.slice(1), '--yinamp-bundled'] }); }
+      try { await store.reject(store.state.active, true); relaunch(); }
+      catch { relaunch(true); }
       app.exit(1);
     },
     start() {

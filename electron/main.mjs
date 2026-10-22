@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, ipcMain, shell, Menu } from 'electron';
+import { app, BrowserWindow, WebContentsView, ipcMain, shell, Menu, dialog } from 'electron';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { appendFileSync, statSync, renameSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -16,6 +16,8 @@ import { musicResultURL } from '../src/search-all-data.js';
 import { writeSearchMismatch } from './search-mismatch-log.mjs';
 import { createMusicLibrary } from './library.mjs';
 import { settleLibraryRequest } from './library-errors.mjs';
+
+import { confirmUninstall } from './uninstall.mjs';
 
 app.setName('Yinamp');
 const profile = process.argv.find(value => value.startsWith('--profile='));
@@ -438,6 +440,10 @@ async function start() {
     { label: 'Yinamp', submenu: [
       ...(process.platform === 'darwin' ? [{ role: 'about' }, { type: 'separator' }] : []),
       { label: 'Updates', submenu: updates?.menu() ?? [{ label: 'Updates are available in the packaged app', enabled: false }] },
+      ...(process.platform === 'darwin' && process.env.YINAMP_NATIVE_UNINSTALL === '1' ? [
+        { type: 'separator' },
+        { label: 'Uninstall Yinamp…', click: () => confirmUninstall({ dialog, app, window: win }) },
+      ] : []),
       { type: 'separator' }, { role: 'quit' },
     ] },
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },

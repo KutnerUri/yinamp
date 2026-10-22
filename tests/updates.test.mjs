@@ -241,3 +241,50 @@ test('development preview only permits explicit checks and has no install or per
   await store.save();
   assert.equal(store.state.pending, null);
 });
+
+test('a managed launcher stages a different Electron version and hands it off before a trial starts', async t => {
+  const { store, directory } = await fixture(t);
+  store.runtimeManaged = true;
+  await store.begin(); await store.healthy(); await store.cleanExit();
+  const next = manifest(2, '45.0.0');
+  next.payloads[platform].runtime = { version: next.electron, revision: '2', size: 123, sha256: 'c'.repeat(64), url: `https://github.com/electron/electron/releases/download/v45.0.0/electron-v45.0.0-${platform}.zip` };
+  await store.stage(next, bytes);
+  let requested;
+  await assert.rejects(store.begin({ ensureRuntime: async metadata => { requested = metadata; throw new Error('runtime handoff'); } }), /runtime handoff/);
+  assert.equal(requested.id, next.id);
+  assert.equal(store.state.active, next.id);
+  assert.equal(store.state.launch, null, 'switching runtimes is not an unhealthy launch');
+  assert.equal(store.state.previous, store.bundled.id);
+  const restarted = new UpdateStore({ ...store, directory, electron: '45.0.0' });
+  await restarted.load();
+  assert.equal(await restarted.begin(), store.archive(next.id));
+  assert.deepEqual(restarted.state.failed, []);
+  await restarted.reject(next.id, true);
+  assert.equal(restarted.state.active, store.bundled.id, 'rollback crosses runtime versions');
+});
+
+test('runtime packages are pinned to the exact official Electron release and bounded', () => {
+  const value = manifest();
+  value.payloads[platform].runtime = { version: value.electron, revision: '2', size: 123, sha256: 'c'.repeat(64), url: `https://github.com/electron/electron/releases/download/v${value.electron}/electron-v${value.electron}-${platform}.zip` };
+  assert.equal(validateManifest(value), value);
+  for (const change of [{ url: 'https://evil.example/runtime.zip' }, { version: '45.0.0' }, { revision: '3' }, { size: 400 * 1024 * 1024 }, { sha256: 'broken' }]) {
+    const bad = structuredClone(value); Object.assign(bad.payloads[platform].runtime, change);
+    assert.throws(() => validateManifest(bad), /runtime/);
+  }
+});
+
+test('a failed runtime download restores the working app without blacklisting a retry', async t => {
+  const { store, directory } = await fixture(t);
+  const statePath = join(directory, 'yinamp-state.json');
+  await writeFile(statePath, 'original queue');
+  store.runtimeManaged = true;
+  await store.begin(); await store.healthy(); await store.cleanExit();
+  await store.stage(manifest(), bytes);
+  await store.begin();
+  await writeFile(statePath, 'recent queue');
+  await store.runtimeUnavailable();
+  assert.equal(await readFile(statePath, 'utf8'), 'recent queue');
+  assert.equal(store.state.active, store.bundled.id);
+  assert.equal(store.state.pending, null);
+  assert.equal(store.state.failed.includes(manifest().id), false);
+});

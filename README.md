@@ -70,6 +70,8 @@ npm run build:pages   # assemble the static demo in dist/
 npm run build:desktop # package the desktop app for this computer in release/
 ```
 
+Desktop packaging also requires Go 1.20 or newer. The compact installer downloads Electron automatically on first launch and reuses it across application updates; see [desktop updates](docs/auto-updates.md).
+
 See the [player guide](docs/player-guide.md) for details and [TODO.md](TODO.md) for the work in progress, warts included.
 
 Bug reports, small fixes, and delightfully unnecessary skins are welcome. Describe what you expected, what happened, and whether you used the browser demo, local browser, or desktop app. Please keep cookies, credentials, and personal diagnostic data out of public issues.

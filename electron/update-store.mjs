@@ -20,13 +20,21 @@ export const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 export function validateManifest(value) {
   if (value?.protocol !== UPDATE_PROTOCOL || !buildID(value.id) || !Number.isSafeInteger(value.number) || value.number < 1 || !Number.isSafeInteger(value.attempt) || value.attempt < 1 || !/^[a-f0-9]{40}$/.test(value.commit ?? '') || typeof value.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(value.electron ?? '') || !value.payloads) throw new Error('Unsupported update information');
   for (const [platform, payload] of Object.entries(value.payloads)) {
+    if (payload.runtime) validateRuntime(payload.runtime, value.electron, platform);
     if (!/^(darwin-(arm64|x64)|win32-x64|linux-x64)$/.test(platform) || !/^[a-f0-9]{64}$/.test(payload.sha256 ?? '') || !Number.isSafeInteger(payload.size) || payload.size <= 0 || payload.size > MAX_PAYLOAD || payload.url !== `${RELEASES}/download/${value.id}/Yinamp-${platform}.asar`) throw new Error('Invalid update package');
   }
   return value;
 }
 
 export function newer(a, b) { return a.number > (b.number ?? 0) || a.number === b.number && a.attempt > (b.attempt ?? 0); }
-export function compatible(manifest, electron, platform) { return manifest.electron === electron && Boolean(manifest.payloads[platform]); }
+export function validateRuntime(runtime, electron, platform) {
+  if (!runtime || runtime.version !== electron || runtime.revision !== '2' || !/^[a-f0-9]{64}$/.test(runtime.sha256 ?? '') || !Number.isSafeInteger(runtime.size) || runtime.size < 1 || runtime.size > 350 * 1024 * 1024 || runtime.url !== `https://github.com/electron/electron/releases/download/v${electron}/electron-v${electron}-${platform}.zip`) throw new Error('Invalid runtime package');
+  return runtime;
+}
+export function compatible(manifest, electron, platform, runtimeManaged = false) {
+  const payload = manifest.payloads[platform];
+  return Boolean(payload) && (manifest.electron === electron || runtimeManaged && Boolean(payload.runtime));
+}
 
 export function mergeManifests(fragments, commit) {
   if (fragments.length !== 4) throw new Error('All four update packages are required');
@@ -54,8 +62,8 @@ export function createDevelopmentUpdateStore({ version, electron, platform }) {
 
 // Atomic writes and immutable payloads keep an interrupted download away from the active app.
 export class UpdateStore {
-  constructor({ directory, bundled, bundledRoot, electron, platform, userData }) {
-    Object.assign(this, { directory, bundled, bundledRoot, electron, platform, userData });
+  constructor({ directory, bundled, bundledRoot, electron, platform, userData, runtimeManaged = false }) {
+    Object.assign(this, { directory, bundled, bundledRoot, electron, platform, userData, runtimeManaged });
     this.queue = Promise.resolve();
     this.state = { active: bundled.id, previous: null, pending: null, pinned: null, paused: false, builds: {}, failed: [], strikes: {}, launch: null, lastCheckAt: 0, nextCheckAt: 0, recentBuilds: [] };
   }
@@ -98,7 +106,7 @@ export class UpdateStore {
   async verify(id) {
     if (id === this.bundled.id) return true;
     const info = this.state.builds[id];
-    if (!info || !compatible(info, this.electron, this.platform)) return false;
+    if (!info || !compatible(info, this.electron, this.platform, this.runtimeManaged)) return false;
     try {
       const bytes = await readFile(this.archive(id));
       const expected = info.payloads[this.platform];
@@ -129,7 +137,15 @@ export class UpdateStore {
     if (restore) await this.restoreSnapshot();
     await this.save();
   }
-  async begin() {
+  async runtimeUnavailable() {
+    const id = this.state.active;
+    // The new runtime never ran; do not rewind user data for a network failure.
+    await this.reject(id);
+    // Connectivity is not an application failure. A later automatic check may retry.
+    this.state.failed = this.state.failed.filter(failed => failed !== id);
+    await this.save();
+  }
+  async begin({ ensureRuntime } = {}) {
     if (!this.state.pinned && newer(this.bundled, this.metadata() ?? {})) {
       this.state.active = this.bundled.id;
       this.state.previous = null;
@@ -151,6 +167,11 @@ export class UpdateStore {
       } else this.state.failed.push(pending);
     }
     if (!await this.verify(this.state.active)) await this.reject(this.state.active);
+    if (ensureRuntime && this.metadata().electron !== this.electron) {
+      this.state.launch = null;
+      await this.save();
+      await ensureRuntime(this.metadata());
+    }
     this.state.launch = { id: this.state.active, healthy: false, clean: false };
     await this.save();
     return this.state.active === this.bundled.id ? this.bundledRoot : this.archive(this.state.active);
@@ -194,7 +215,7 @@ export class UpdateStore {
   }
   async stage(manifest, bytes, { automatic = false, pin = false } = {}) {
     validateManifest(manifest);
-    if (!compatible(manifest, this.electron, this.platform)) throw new Error('This build needs a newer desktop download');
+    if (!compatible(manifest, this.electron, this.platform, this.runtimeManaged)) throw new Error('This build needs a newer desktop download');
     const payload = manifest.payloads[this.platform];
     if (bytes.length !== payload.size || digest(bytes) !== payload.sha256) throw new Error('The update download did not pass its integrity check');
     if (automatic && (this.state.paused || this.state.pinned || this.state.failed.includes(manifest.id))) return false;
