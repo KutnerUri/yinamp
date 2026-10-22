@@ -1,3 +1,4 @@
+import { stampAppVersion } from './app-version.mjs';
 import { queryTrackVersions } from './music-versions.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -121,7 +122,7 @@ export function createAppServer({ fetcher = fetch } = {}) {
       const type = mime[extname(path)];
       if (!type) return send(404, 'Not found', 'text/plain');
       const content = await readFile(path);
-      send(200, content, type);
+      send(200, asset === 'index.html' ? stampAppVersion(content.toString('utf8')) : content, type);
     } catch (error) {
       send(error.code === 'ENOENT' ? 404 : 400, 'Not found', 'text/plain');
     }

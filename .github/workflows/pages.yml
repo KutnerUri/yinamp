@@ -1,19 +1,32 @@
-name: Test and deploy demo
+name: Deploy demo
+
 on:
-  push:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
     branches: [main, master]
-  pull_request:
-  workflow_dispatch:
+
 permissions:
   contents: read
+
 concurrency:
-  group: pages-${{ github.ref }}
+  group: pages-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: true
+
 jobs:
   build:
+    # workflow_run can access deployment credentials. Only build a successful
+    # test run from this repository's default branch, never a PR or fork.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event != 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == github.event.repository.default_branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -23,13 +36,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-      - run: npm test
       - run: npm run build:pages
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
   deploy:
-    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     needs: build
     runs-on: ubuntu-latest
     permissions:

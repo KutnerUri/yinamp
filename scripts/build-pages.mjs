@@ -1,3 +1,4 @@
+import { stampAppVersion } from '../app-version.mjs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
@@ -9,7 +10,7 @@ for (const directory of ['src', 'skins']) await cp(new URL(directory, root), new
 await cp(new URL('LICENSE', root), new URL('LICENSE', output));
 await cp(fileURLToPath(import.meta.resolve('@preact/signals-core')), new URL('src/vendor/signals-core.js', output));
 await cp(new URL('../node_modules/@preact/signals-core/LICENSE', import.meta.url), new URL('src/vendor/signals-core.LICENSE', output));
-let html = await readFile(new URL('index.html', root), 'utf8');
+let html = stampAppVersion(await readFile(new URL('index.html', root), 'utf8'));
 html = html.replaceAll('"/src/', '"./src/').replace('<script type="module" src="./src/app.js"></script>', '<script type="module" src="./src/pages-demo.js"></script>');
 html = html.replace('href="/"', 'href="./"');
 html = html.replace('<body>', `<body>

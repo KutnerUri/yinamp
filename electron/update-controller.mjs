@@ -1,3 +1,4 @@
+import { versionMenu } from './versions.mjs';
 import { app, dialog, shell } from 'electron';
 import { githubDownload, readManifest, listBuilds } from './update-network.mjs';
 import { RELEASES, compatible, newer } from './update-store.mjs';
@@ -92,15 +93,11 @@ export function createUpdateController(store, { preview = false } = {}) {
       const current = store.metadata();
       const automatic = !store.state.paused && !store.state.pinned;
       const previous = store.metadata(store.state.previous);
-      const candidates = [
-        ...(previous ? [{ id: previous.id, label: label(previous) }] : []),
+      const versions = versionMenu([
+        { ...current, label: label(current) },
+        ...(previous ? [{ ...previous, label: label(previous) }] : []),
         ...builds,
-      ];
-      const seen = new Set([current.id]);
-      const recent = candidates.filter(build => {
-        if (seen.has(build.id)) return false;
-        seen.add(build.id); return true;
-      }).slice(0, 5);
+      ], current.id, id => void action(() => choose(id)), !preview);
       return [
         { label: 'Check for updates…', enabled: !busy, click: () => void check(true) },
         { label: 'Restart to update', enabled: !preview && Boolean(store.state.pending) && !busy, click: () => {
@@ -111,10 +108,8 @@ export function createUpdateController(store, { preview = false } = {}) {
         } },
         { label: automatic ? 'Automatic updates' : 'Automatic updates disabled', type: 'checkbox', checked: automatic, enabled: !preview && !busy, click: item => { if (!preview) void action(async () => { await store.automatic(item.checked); status = ''; }).then(scheduleCheck); } },
         { label: 'Use specific version', enabled: !busy, submenu: [
-          { label: label(current), type: 'checkbox', checked: true, enabled: !preview, click: () => void action(() => choose(current.id)) },
+          ...versions,
           { type: 'separator' },
-          ...recent.map(build => ({ label: build.label, enabled: !preview, click: () => void action(() => choose(build.id)) })),
-          ...(recent.length ? [{ type: 'separator' }] : []),
           { label: 'Refresh', click: () => void action(refreshBuilds) },
           { label: 'All builds on GitHub…', click: () => void shell.openExternal(RELEASES) },
         ] },

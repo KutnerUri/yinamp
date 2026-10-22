@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { createAppServer } from '../server.mjs';
 import { playlistPage } from './fixtures/playlist.mjs';
@@ -14,7 +15,10 @@ test('serves the application with module MIME types and a YouTube-compatible ref
   await withServer(null, async base => {
     const page = await fetch(base);
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /YINAMP VIDEO/);
+    const html = await page.text();
+    assert.match(html, /YINAMP VIDEO/);
+    const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+    assert.ok(html.includes(`class="version">v${pkg.version}</span>`));
     assert.equal(page.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
     const module = await fetch(`${base}/src/app.js`);
     assert.match(module.headers.get('content-type'), /javascript/);

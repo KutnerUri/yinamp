@@ -1,3 +1,4 @@
+import { parseVersion } from '../electron/versions.mjs';
 import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -15,8 +16,12 @@ const manifest = mergeManifests(fragments, process.env.GITHUB_SHA);
 const { payloads: ignored, ...metadata } = manifest;
 const repo = process.env.GH_REPO;
 if (!repo) throw new Error('GH_REPO is required');
-const head = gh(['api', `repos/${repo}/commits/main`, '--jq', '.sha']).trim();
-if (head !== manifest.commit) {
+const isMain = !process.env.GITHUB_REF || process.env.GITHUB_REF === 'refs/heads/main';
+const parsedVersion = parseVersion(manifest.version);
+if (!parsedVersion || isMain === Boolean(parsedVersion.prerelease.length)) throw new Error('Main builds need stable versions; branch builds need prerelease versions');
+const prerelease = isMain ? '--prerelease=false' : '--prerelease';
+const head = isMain ? gh(['api', `repos/${repo}/commits/main`, '--jq', '.sha']).trim() : null;
+if (isMain && head !== manifest.commit) {
   console.log('Main moved ahead; the newer run will publish its build.');
   process.exit(0);
 }
@@ -39,14 +44,18 @@ await writeFile(notes, `Yinamp ${manifest.version} · Build ${manifest.number}.$
 const assets = [...installers, ...archives, 'SHA256SUMS.txt', 'BUILD-INFO.json', 'UPDATE.json'].map(file => join(directory, file));
 const existing = gh(['release', 'view', manifest.id, '--json', 'isDraft'], true);
 if (!existing) {
-  gh(['release', 'create', manifest.id, '--target', manifest.commit, '--title', `${manifest.version} · Build ${manifest.number}.${manifest.attempt}`, '--draft', '--prerelease', '--latest=false', '--notes-file', notes, ...assets]);
+  gh(['release', 'create', manifest.id, '--target', manifest.commit, '--title', `${manifest.version} · Build ${manifest.number}.${manifest.attempt}`, '--draft', prerelease, '--latest=false', '--notes-file', notes, ...assets]);
 } else if (JSON.parse(existing).isDraft) {
   gh(['release', 'upload', manifest.id, ...assets, '--clobber']);
 } else {
   const published = JSON.parse(gh(['release', 'download', manifest.id, '--pattern', 'UPDATE.json', '--output', '-']));
   if (JSON.stringify(published) !== JSON.stringify(manifest)) throw new Error('An existing published build cannot be replaced');
 }
-gh(['release', 'edit', manifest.id, '--draft=false', '--prerelease', '--latest=false']);
+gh(['release', 'edit', manifest.id, '--draft=false', prerelease, '--latest=false']);
+if (!isMain) {
+  console.log(`Published branch preview ${manifest.version} (${manifest.id}); latest-build is unchanged.`);
+  process.exit(0);
+}
 const latest = gh(['release', 'view', 'latest-build'], true);
 const rollingAssets = [...installers, 'SHA256SUMS.txt', 'BUILD-INFO.json'].map(file => join(directory, file));
 if (!latest) {

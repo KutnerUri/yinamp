@@ -68,5 +68,8 @@ func uninstall(profile string) error {
 	helper := uninstallHelper(profile)
 	// Electron has exited; the helper can now move both the runtime and this
 	// running launcher's bundle to Trash without an external cleanup service.
-	return exec.Command(helper, "--uninstall", profile, bundle).Run()
+	command := exec.Command(helper, "--uninstall", profile, bundle)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	return command.Run()
 }

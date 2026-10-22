@@ -288,3 +288,14 @@ test('a failed runtime download restores the working app without blacklisting a 
   assert.equal(store.state.pending, null);
   assert.equal(store.state.failed.includes(manifest().id), false);
 });
+
+
+test('the complete version index survives offline restarts without keeping every app archive', async t => {
+  const { store, open } = await fixture(t);
+  store.state.recentBuilds = Array.from({ length: 75 }, (_, index) => ({ id: `build-${index + 1}-1`, label: `1.2.${index} · Build ${index + 1}.1`, version: `1.2.${index}` }));
+  await store.save();
+  const restarted = await open();
+  assert.equal(restarted.state.recentBuilds.length, 75);
+  assert.equal(restarted.state.recentBuilds.at(-1).version, '1.2.74');
+  assert.deepEqual(restarted.state.builds, {});
+});

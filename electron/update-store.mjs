@@ -2,6 +2,7 @@ import * as nodeFS from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { parseVersion, versionFromLabel } from './versions.mjs';
 import { UPDATE_DAY_MS, automaticCheckDue, nextUpdateCheck, updateJitter } from './update-schedule.mjs';
 
 // Electron's patched fs sees an ASAR as a directory. Integrity checks and writes
@@ -75,7 +76,7 @@ export class UpdateStore {
       for (const [id, manifest] of Object.entries(parsed.builds)) if (validateManifest(manifest).id !== id) throw new Error('Invalid build record');
       for (const key of ['active', 'previous', 'pending', 'pinned']) if (parsed[key] != null && typeof parsed[key] !== 'string') throw new Error('Invalid build selection');
       this.state = { ...this.state, ...parsed, strikes: parsed.strikes ?? {} };
-      this.state.recentBuilds = Array.isArray(parsed.recentBuilds) ? parsed.recentBuilds.filter(build => buildID(build?.id) && typeof build.label === 'string').slice(0, 20).map(build => ({ id: build.id, label: build.label.slice(0, 100) })) : [];
+      this.state.recentBuilds = Array.isArray(parsed.recentBuilds) ? parsed.recentBuilds.filter(build => buildID(build?.id) && typeof build.label === 'string').map(build => ({ id: build.id, label: build.label.slice(0, 200), version: parseVersion(build.version) ? build.version : versionFromLabel(build.label) })) : [];
     } catch { /* Missing or damaged updater state always permits the bundled app. */ }
     return this;
   }

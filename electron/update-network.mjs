@@ -1,3 +1,4 @@
+import { versionFromLabel } from './versions.mjs';
 import { MAX_PAYLOAD, REPOSITORY, RELEASES, validateManifest } from './update-store.mjs';
 
 const metadataLimit = 1024 * 1024;
@@ -32,7 +33,15 @@ export async function readManifest(id = 'latest-build', options) {
   return validateManifest(JSON.parse(await githubDownload(`${RELEASES}/download/${id}/UPDATE.json`, { ...options, limit: metadataLimit })));
 }
 export async function listBuilds(options) {
-  const releases = JSON.parse(await githubDownload(`https://api.github.com/repos/${REPOSITORY}/releases?per_page=50`, { ...options, limit: metadataLimit }));
-  if (!Array.isArray(releases)) throw new Error('Invalid build list');
-  return releases.filter(item => !item.draft && /^build-\d+-\d+$/.test(item.tag_name)).slice(0, 20).map(item => ({ id: item.tag_name, label: String(item.name || item.tag_name).slice(0, 100) }));
+  const builds = new Map();
+  for (let page = 1; ; page++) {
+    const releases = JSON.parse(await githubDownload(`https://api.github.com/repos/${REPOSITORY}/releases?per_page=100&page=${page}`, { ...options, limit: 8 * metadataLimit }));
+    if (!Array.isArray(releases)) throw new Error('Invalid build list');
+    for (const item of releases) {
+      if (item.draft || !/^build-\d+-\d+$/.test(item.tag_name)) continue;
+      const label = String(item.name || item.tag_name).slice(0, 200);
+      builds.set(item.tag_name, { id: item.tag_name, label, version: versionFromLabel(label) });
+    }
+    if (releases.length < 100) return [...builds.values()];
+  }
 }

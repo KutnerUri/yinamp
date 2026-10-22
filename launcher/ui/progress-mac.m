@@ -86,18 +86,25 @@ int main(int argc, const char *argv[]) {
     if (argc == 4 && strcmp(argv[1], "--uninstall") == 0) {
         @autoreleasepool {
             [NSApplication.sharedApplication setActivationPolicy:NSApplicationActivationPolicyAccessory];
+            NSMutableArray *trashed = [NSMutableArray new];
             for (int i = 2; i < 4; i++) {
                 NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:argv[i]]];
                 if (![NSFileManager.defaultManager fileExistsAtPath:url.path]) continue;
                 NSError *error = nil;
-                if (![NSFileManager.defaultManager trashItemAtURL:url resultingItemURL:NULL error:&error]) {
+                NSURL *destination = nil;
+                if (![NSFileManager.defaultManager trashItemAtURL:url resultingItemURL:&destination error:&error]) {
                     NSAlert *alert = [NSAlert new];
                     alert.messageText = @"Yinamp could not finish uninstalling";
                     alert.informativeText = [NSString stringWithFormat:@"Could not move %@ to Trash. %@", url.lastPathComponent, error.localizedDescription];
+                    [NSApplication.sharedApplication finishLaunching];
+                    [NSApplication.sharedApplication activateIgnoringOtherApps:YES];
                     [alert runModal];
                     return 1;
                 }
+                [trashed addObject:@{@"source":url.path, @"destination":destination.path}];
             }
+            NSData *report = [NSJSONSerialization dataWithJSONObject:@{@"event":@"yinamp-uninstalled", @"trashed":trashed} options:0 error:NULL];
+            puts([[NSString alloc] initWithData:report encoding:NSUTF8StringEncoding].UTF8String);
         }
         return 0;
     }

@@ -32,7 +32,7 @@ This isn't a claim that software now builds itself perfectly. Things break. Assu
 
 ## Press play
 
-[Download Yinamp for macOS, Windows, or Linux](https://github.com/KutnerUri/yinamp/releases/tag/latest-build). Runtime included. These unsigned, experimental builds download application updates quietly for the next launch; manage versions under **Yinamp → Updates**.
+[Download Yinamp for macOS, Windows, or Linux](https://github.com/KutnerUri/yinamp/releases/tag/latest-build). Electron downloads automatically on first launch. These unsigned, experimental builds download application updates quietly for the next launch; manage versions under **Yinamp → Updates**.
 
 ### Run from source
 

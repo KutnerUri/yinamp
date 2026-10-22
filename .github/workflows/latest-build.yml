@@ -6,6 +6,7 @@ on:
     # Keep aligned with electron-builder.yml and the scripts used below.
     paths:
       - '.github/workflows/latest-build.yml'
+      - '.github/workflows/tests.yml'
       - 'electron-builder.yml'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -27,6 +28,8 @@ on:
       - 'scripts/build-compact.mjs'
       - 'scripts/electron-runtime.mjs'
       - 'scripts/prepare-build.mjs'
+      - 'scripts/desktop-version.mjs'
+      - 'scripts/allocate-desktop-version.mjs'
       - 'scripts/report-desktop.cjs'
       - 'scripts/create-update.mjs'
       - 'scripts/publish-latest.mjs'
@@ -37,34 +40,34 @@ permissions:
 
 # Let publishing finish; a newer push queues behind the current build.
 concurrency:
-  group: latest-desktop-build
+  group: latest-desktop-build-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   test:
+    uses: ./.github/workflows/tests.yml
+
+  version:
+    needs: test
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.allocate.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v6
-        with:
-          version: '11.15.1'
-      - run: pnpm install --frozen-lockfile
+      - name: Reserve a desktop version
+        id: allocate
         env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 'stable'
-          cache: false
-      - run: npm test
-      - name: Native launcher tests
-        run: go test ./...
-        working-directory: launcher
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node scripts/allocate-desktop-version.mjs
 
   build:
-    needs: test
+    needs: [test, version]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -125,6 +128,7 @@ jobs:
         run: npm run build:desktop -- --${{ matrix.platform }} --${{ matrix.arch }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          YINAMP_BUILD_VERSION: ${{ needs.version.outputs.version }}
       - name: Desktop package smoke tests
         run: '"$APP_EXECUTABLE" tests/desktop/package-smoke.mjs "$APP_ARCHIVE"'
         env:
@@ -164,6 +168,15 @@ jobs:
           else
             node tests/desktop/lifecycle.mjs "$LAUNCHER" "$APP_ARCHIVE"
           fi
+      - name: macOS installer and uninstall integration
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        env:
+          APP_ARCH: ${{ matrix.arch }}
+          APP_RUNTIME: release/checked-runtime-${{ matrix.runtime }}
+          APP_ARCHIVE: ${{ matrix.archive }}
+          YINAMP_INSTALL_TEST_OUTPUT: test-results/install-${{ matrix.runtime }}
+        run: node tests/desktop/install-uninstall.mjs "release/Yinamp-latest-mac-${APP_ARCH}.dmg" "$APP_RUNTIME" "$APP_ARCHIVE"
       - name: Prepare versioned application update
         run: node scripts/create-update.mjs "$APP_ARCHIVE" "$APP_PLATFORM"
         env:
@@ -195,11 +208,13 @@ jobs:
             test-results/compact-${{ matrix.runtime }}/*.log
             test-results/compact-${{ matrix.runtime }}/*.json
             test-results/compact-${{ matrix.runtime }}/*.jsonl
+            test-results/install-${{ matrix.runtime }}/*.log
+            test-results/install-${{ matrix.runtime }}/*.json
+            test-results/install-${{ matrix.runtime }}/*.jsonl
             release/builder-debug.yml
             release/builder-effective-config.yaml
 
   publish:
-    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -214,7 +229,7 @@ jobs:
           pattern: desktop-*
           path: downloads
           merge-multiple: true
-      - name: Publish rolling latest build
+      - name: Publish desktop build (main also updates latest)
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

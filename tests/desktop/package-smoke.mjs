@@ -41,6 +41,7 @@ const bytes = await rawFS.readFile(resolve(process.argv[2]));
 const directory = await mkdtemp(join(tmpdir(), 'yinamp-packaged-update-'));
 try {
   const bundled = JSON.parse(await readFile(new URL('build-info.json', root), 'utf8'));
+  assert.equal(bundled.version, metadata.version, 'Updater and package versions must match');
   const platform = `${process.platform}-${process.arch}`;
   const manifest = { protocol: 1, id: 'build-900000001-1', number: 999999, attempt: 1, commit: 'a'.repeat(40), version: metadata.version, electron: process.versions.electron,
     payloads: { [platform]: { size: bytes.length, sha256: digest(bytes), url: `${RELEASES}/download/build-900000001-1/Yinamp-${platform}.asar` } } };
