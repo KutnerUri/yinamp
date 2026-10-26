@@ -31,8 +31,8 @@ test('tests run independently on branches and PRs and are reused by desktop buil
   const checks = await workflow('tests');
   for (const trigger of ['push', 'pull_request', 'workflow_call', 'workflow_dispatch']) assert.ok(Object.hasOwn(checks.on, trigger));
   assert.equal(checks.permissions.contents, 'read');
-  assert.ok(checks.jobs.test.steps.some(step => step.run === 'npm test'));
-  assert.ok(checks.jobs.test.steps.some(step => step.run === 'go test ./...'));
+  assert.ok(checks.jobs.app.steps.some(step => step.run === 'npm test'));
+  assert.ok(checks.jobs.bootstrap.steps.some(step => step.run === 'go test ./...'));
   const desktop = await workflow('latest-build');
   assert.equal(desktop.jobs.test.uses, './.github/workflows/tests.yml');
   const installer = desktop.jobs.build.steps.find(step => step.name === 'macOS installer and uninstall integration');
