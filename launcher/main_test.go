@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -312,6 +313,11 @@ func TestReleaseRuntimeExtraction(t *testing.T) {
 	}
 	if err := prepareOfficialRuntime(destination); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "darwin" {
+		if output, err := exec.Command("/usr/bin/codesign", "--verify", "--deep", "--strict", filepath.Join(destination, "Yinamp.app")).CombinedOutput(); err != nil {
+			t.Fatalf("prepared runtime has an invalid signature: %v\n%s", err, output)
+		}
 	}
 	if _, err := os.Stat(binary(destination)); err != nil {
 		t.Fatal(err)

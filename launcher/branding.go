@@ -54,7 +54,9 @@ func prepareOfficialRuntime(root string) error {
 			}
 		}
 	}
-	output, err := exec.Command("/usr/bin/codesign", "--force", "--sign", "-", destination).CombinedOutput()
+	// Intel archives can contain unsigned nested helpers. Prepare the entire
+	// private runtime tree with ad-hoc signatures, including those helpers.
+	output, err := exec.Command("/usr/bin/codesign", "--force", "--deep", "--sign", "-", destination).CombinedOutput()
 	if err != nil {
 		return errors.New("could not prepare the Electron app: " + string(output))
 	}
