@@ -1,16 +1,12 @@
 const release = 'https://github.com/KutnerUri/yinamp/releases';
 const asset = file => `${release}/download/latest-build/Yinamp-latest-${file}`;
 
-// Browsers often report MacIntel on Apple Silicon. Never infer Mac architecture from it.
+// A universal Mac download also covers browsers that report ambiguous CPU hints.
 export function desktopDownload({ platform = '', userAgent = '', architecture = '', bitness = '', model = '', maxTouchPoints = 0 } = {}) {
   const system = `${platform} ${userAgent}`;
   const fallback = { label: 'Download desktop app ↗', href: `${release}/tag/latest-build` };
   if (/Android|iPhone|iPad|iPod/i.test(system) || (/Mac/i.test(system) && maxTouchPoints > 1) || (model && !/Windows|macOS|Linux/i.test(platform))) return fallback;
-  if (/Mac/i.test(system)) {
-    if (architecture === 'arm' && bitness === '64') return { label: 'Download for macOS · Apple Silicon', href: asset('mac-arm64.dmg') };
-    if (architecture === 'x86' && bitness === '64') return { label: 'Download for macOS · Intel', href: asset('mac-x64.dmg') };
-    return { ...fallback, macChoices: true };
-  }
+  if (/Mac/i.test(system)) return { label: 'Download for macOS', href: asset('mac-universal.dmg') };
   // Only link directly to architectures we actually build.
   if (architecture === 'arm' || /aarch64|arm64|armv7/i.test(system) || bitness === '32') return fallback;
   if (/Windows|Win32|Win64/i.test(system) && (bitness === '64' || /Win64|WOW64|x64/i.test(userAgent))) {

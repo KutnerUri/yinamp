@@ -26,6 +26,8 @@ on:
       - 'launcher/**'
       - 'scripts/build-desktop.mjs'
       - 'scripts/build-compact.mjs'
+      - 'scripts/build-universal-mac.mjs'
+      - 'scripts/check-universal-mac.mjs'
       - 'scripts/electron-runtime.mjs'
       - 'scripts/prepare-build.mjs'
       - 'scripts/desktop-version.mjs'
@@ -182,6 +184,16 @@ jobs:
         env:
           APP_ARCHIVE: ${{ matrix.archive }}
           APP_PLATFORM: ${{ matrix.runtime }}
+      - name: Archive native Mac bundle for universal merge
+        if: runner.os == 'macOS'
+        run: tar -cf "release/compact-${{ matrix.runtime }}.tar" "build-info.json" -C release "compact-${{ matrix.runtime }}"
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'macOS'
+        with:
+          name: compact-${{ matrix.runtime }}
+          if-no-files-found: error
+          retention-days: 7
+          path: release/compact-${{ matrix.runtime }}.tar
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
@@ -214,8 +226,89 @@ jobs:
             release/builder-debug.yml
             release/builder-effective-config.yaml
 
-  publish:
+  universal-mac:
     needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v6
+        with:
+          version: '11.15.1'
+      - run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: compact-darwin-*
+          path: release
+          merge-multiple: true
+      - name: Test universal merge and signature verification
+        run: node --test tests/universal-mac.test.mjs
+      - name: Merge native bundles and package universal DMG
+        run: |
+          tar -xf release/compact-darwin-arm64.tar -C release
+          cp release/build-info.json build-info.json
+          tar -xf release/compact-darwin-x64.tar -C release
+          cmp build-info.json release/build-info.json
+          node scripts/build-universal-mac.mjs
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-mac-universal
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            release/Yinamp-latest-mac-universal.dmg
+            release/build-info.json
+
+  test-universal-mac:
+    needs: universal-mac
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v6
+        with:
+          version: '11.15.1'
+      - run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-mac-*
+          path: release
+          merge-multiple: true
+      - name: Test the final universal DMG on native hardware
+        run: |
+          cp release/build-info.json build-info.json
+          node scripts/check-universal-mac.mjs
+        env:
+          YINAMP_INSTALL_TEST_OUTPUT: test-results/universal
+          YINAMP_INSTALL_COLD_START: '1'
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: failure-universal-${{ matrix.os }}
+          if-no-files-found: warn
+          path: test-results/universal
+
+  publish:
+    needs: [build, test-universal-mac]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

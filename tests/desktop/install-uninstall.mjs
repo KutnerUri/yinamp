@@ -136,10 +136,11 @@ try {
     for (const window of electron.BrowserWindow.getAllWindows()) window.hide();
     const menu = electron.Menu.getApplicationMenu().items.find(item => item.label === 'Yinamp').submenu;
     globalThis.__installTestMenuItem = menu.items.find(item => item.label === 'Uninstall Yinamp…');
-    return { available: Boolean(globalThis.__installTestMenuItem?.enabled), profile: electron.app.getPath('userData'), version: electron.app.getVersion() };
+    return { available: Boolean(globalThis.__installTestMenuItem?.enabled), profile: electron.app.getPath('userData'), version: electron.app.getVersion(), arch: process.arch };
   })()`);
   assert.equal(status.profile, profile);
   assert.equal(status.version, bundled.version);
+  assert.equal(status.arch, process.arch, 'The installed launcher must select the native Electron architecture');
   assert.equal(status.available, true);
   assert.ok(await exists(join(profile, 'launcher')));
   await pass('installed launcher bootstrapped Electron and confirmed renderer health');

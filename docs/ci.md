@@ -33,7 +33,7 @@ The Linux job uses Xvfb for a virtual display. Chromium's `--no-sandbox` flag is
 
 For a manual fresh-download check, set `YINAMP_TEST_COLD_START=1` when running the compact lifecycle harness. It leaves the runtime cache empty, downloads directly from Electron, and then exercises cached restarts and app updates.
 
-All four jobs must pass before `publish` can update the downloads or update feed. A failed job leaves the previous published build available. On failure, a `failure-<platform>` artifact retains process logs, a test report, updater state and startup diagnostics for seven days. Artifacts exclude the full Chromium profile and session data.
+The Mac bundles are then merged into a universal launcher and universal progress helper with `lipo`, signed again, and packaged as `Yinamp-latest-mac-universal.dmg`. Both native Mac runners test that exact DMG, including a fresh Electron download, installation/uninstall, and cached-runtime update/rollback lifecycle checks. Separate architecture DMGs remain available as fallbacks. All build and universal-test jobs must pass before `publish` can update the downloads or update feed. A failed job leaves the previous published build available. On failure, a `failure-<platform>` artifact retains process logs, a test report, updater state and startup diagnostics for seven days. Artifacts exclude the full Chromium profile and session data.
 
 ## Installer-to-uninstall test on macOS
 
@@ -50,7 +50,7 @@ node tests/desktop/install-uninstall.mjs \
   release/mac-arm64/Yinamp.app/Contents/Resources/app.asar
 ```
 
-Set `YINAMP_INSTALL_COLD_START=1` for a full first-launch download from official Electron releases instead of seeding the runtime. This optional network check is not repeated in every CI run. `YINAMP_INSTALL_TEST_OUTPUT` selects the report/log directory. Reports exclude the full profile and session data.
+Set `YINAMP_INSTALL_COLD_START=1` for a full first-launch download from official Electron releases instead of seeding the runtime. The universal DMG tests run this network check on both native Mac runners. `YINAMP_INSTALL_TEST_OUTPUT` selects the report/log directory. Reports exclude the full profile and session data.
 
 The test also verifies that the native launcher, Electron and its helpers exit after uninstall. Set `YINAMP_INSTALL_LAUNCHSERVICES=1` to launch through macOS as Finder does; local macOS privacy settings may prevent the test from inspecting its resulting Trash entries.
 
@@ -73,3 +73,5 @@ GitHub sends workflow emails through your account settings; the workflow does no
 This setting applies to your GitHub account and covers the workflow runs you trigger, including your pushes to `main`. It must be enabled in your account; committing this workflow does not change notification preferences.
 
 Reference: [GitHub Actions notifications](https://docs.github.com/en/subscriptions-and-notifications/how-tos/managing-github-actions-notifications).
+
+Mac builds default to universal; `--arm64` and `--x64` still build individual fallback packages. Build one universal Mac DMG locally with `npm run build:desktop -- --mac --universal` (`--dir` skips DMG creation). This builds both compact launchers and preserves their separate embedded payloads; Electron is still downloaded only for the running architecture.
