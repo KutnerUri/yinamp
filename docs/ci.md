@@ -27,6 +27,8 @@ The official runtime ZIP is extracted and prepared with the native launcher’s 
 
 The baseline lifecycle tests exercise the packaged runtime. The macOS installer test additionally mounts the real DMG read-only and copies its app into a disposable Applications folder. It does not drive Finder, use accessibility, or simulate system mouse/keyboard input. Fresh-machine Gatekeeper prompts remain a separate manual check.
 
+macOS GUI tests first probe permission to access Launch Services and WindowServer. A sandbox that explicitly denies either service fails the test before Electron is launched, rather than causing an AppKit registration crash and a macOS crash dialog. This is a test failure, not a skipped or passing check; run GUI validation on the native Mac CI runners or from an unrestricted Terminal session. The probe uses the system compiler and affects only test processes.
+
 They live in `tests/desktop/package-smoke.mjs`, `tests/desktop/lifecycle.mjs` and `tests/desktop/install-uninstall.mjs`. CI runs them explicitly against a packaged app; `npm test` runs the regular `tests/*.test.mjs` suite. The `scripts/` directory contains build and publishing tools.
 
 The Linux job uses Xvfb for a virtual display. Chromium's `--no-sandbox` flag is restricted to this isolated Linux CI test process; it is not added to the shipped app. Linux download progress uses Zenity when installed and otherwise writes to the terminal; the runtime download still works without Zenity. Linux system library and sandbox requirements remain those of Electron. Automatic update checks are paused in the test profile, so the tests do not fetch the public update feed or depend on releases already being online.

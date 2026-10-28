@@ -11,10 +11,12 @@ import { promisify } from 'node:util';
 import { once } from 'node:events';
 import { createRequire } from 'node:module';
 import { UpdateStore } from '../../electron/update-store.mjs';
+import { requireMacOSGUI } from './macos-gui.mjs';
 
 if (process.platform !== 'darwin') throw new Error('This test covers the macOS installer and uninstaller');
 const [dmgArg, runtimeArg, archiveArg] = process.argv.slice(2);
 if (!dmgArg || !runtimeArg || !archiveArg) throw new Error('Supply <DMG> <verified-runtime-directory> <app.asar>');
+await requireMacOSGUI();
 const [dmg, runtime, archive] = [dmgArg, runtimeArg, archiveArg].map(value => resolve(value));
 const output = resolve(process.env.YINAMP_INSTALL_TEST_OUTPUT || await mkdtemp(join(tmpdir(), 'yinamp-install-report-')));
 await mkdir(output, { recursive: true });

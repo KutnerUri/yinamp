@@ -4,8 +4,10 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { prepareCheckedRuntime } from './build-compact.mjs';
+import { requireMacOSGUI } from '../tests/desktop/macos-gui.mjs';
 const platform = `darwin-${process.arch}`;
 if (process.platform !== 'darwin') throw new Error('Requires a native Mac runner');
+await requireMacOSGUI();
 function run(command, args, env = process.env) {
   const result = spawnSync(command, args, { stdio: 'inherit', env });
   if (result.error) throw result.error;
