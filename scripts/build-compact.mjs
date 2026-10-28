@@ -49,6 +49,8 @@ export async function buildCompact({ platform, arch }) {
     const compactApp = platform === 'darwin' ? join(compactRoot, 'Yinamp.app') : compactRoot;
     const executable = platform === 'darwin' ? join(compactApp, 'Contents/MacOS/Yinamp') : join(compactApp, platform === 'win32' ? 'Yinamp.exe' : 'yinamp');
     await mkdir(dirname(executable), { recursive: true });
+    // electron-builder copies its Windows elevation helper here when making the portable EXE.
+    if (platform === 'win32') await mkdir(join(compactApp, 'resources'), { recursive: true });
     run('go', ['build', '-trimpath', '-ldflags', `-s -w${platform === 'win32' ? ' -H=windowsgui' : ''}`, '-o', executable, '.'], { cwd: source, env: { ...process.env, CGO_ENABLED: '0', GOOS: platform === 'win32' ? 'windows' : platform, GOARCH: arch === 'x64' ? 'amd64' : arch } });
     if (platform === 'darwin') {
       await mkdir(join(compactApp, 'Contents/Resources'), { recursive: true });

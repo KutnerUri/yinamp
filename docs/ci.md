@@ -8,6 +8,8 @@
 
 ## Desktop packages
 
+**Windows build check** runs immediately on pushes affecting packaging or the launcher, and can also be started manually from Actions on a selected branch. It builds only the Windows portable EXE, caches Electron and packaging downloads, and saves a `windows-installer` artifact for seven days. It does not wait for other platforms, reserve a release version or publish a release. Use it for a shorter packaging feedback loop; the full desktop workflow still runs the lifecycle checks before publishing.
+
 Push directly to `main` to run **Latest desktop build** when shipped app files, dependencies, packaging, tests or this workflow change. Documentation, demo-only files and experiments do not trigger a desktop release. Shared player code does, since it also ships in the app. No pull request is required.
 
 Use **Actions → Latest desktop build → Run workflow** on `main` to force a complete run regardless of which files changed. Manual runs on another branch run the same build and tests, then publish a prerelease without changing the main update feed. Branch pushes do not automatically run the desktop workflow. The push path filter in the workflow must stay aligned with `electron-builder.yml` and its build/test scripts. Every published build still passes all desktop tests. Fresh-machine Gatekeeper/SmartScreen interactions and Linux distribution-specific dependencies require separate installer testing; the CI runners are not a substitute for those checks.
