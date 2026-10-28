@@ -52,6 +52,8 @@ node tests/desktop/install-uninstall.mjs \
 
 Set `YINAMP_INSTALL_COLD_START=1` for a full first-launch download from official Electron releases instead of seeding the runtime. This optional network check is not repeated in every CI run. `YINAMP_INSTALL_TEST_OUTPUT` selects the report/log directory. Reports exclude the full profile and session data.
 
+The test also verifies that the native launcher, Electron and its helpers exit after uninstall. Set `YINAMP_INSTALL_LAUNCHSERVICES=1` to launch through macOS as Finder does; local macOS privacy settings may prevent the test from inspecting its resulting Trash entries.
+
 ## Automatic versions
 
 `package.json` supplies the minimum intended stable version. Each main build reserves the next patch after all existing stable versions, unless the file requests a higher minor/major version. For example, with `1.2.0` in the file and `1.2.8` already used, CI chooses `1.2.9`; changing the file to `1.3.0` starts that series. Existing legacy releases are included when computing the next version.

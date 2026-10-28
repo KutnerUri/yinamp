@@ -28,7 +28,7 @@ const mount = join(root, 'mount');
 const run = promisify(execFile);
 const realHome = homedir();
 const report = { platform: `darwin-${process.arch}`, passed: [], startedAt: new Date().toISOString(), coldStart: process.env.YINAMP_INSTALL_COLD_START === '1' };
-let running, childPID, inspector, mounted = false;
+let running, childPID, launcherPID, inspector, mounted = false;
 const log = await open(join(output, 'process.log'), 'w');
 const exists = path => access(path).then(() => true, () => false);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -110,7 +110,12 @@ try {
   delete environment.ELECTRON_RUN_AS_NODE;
   // The launcher derives its normal profile from this temporary HOME. It still
   // applies its production uninstall-path checks; no custom-profile exemption.
-  running = spawn(executable, ['--inspect=127.0.0.1:0'], { env: environment, detached: true, stdio: ['ignore', log.fd, log.fd] });
+  // Optional Finder-style launch; local macOS privacy rules may restrict subsequent Trash inspection.
+  running = process.env.YINAMP_INSTALL_LAUNCHSERVICES === '1' ? spawn('/usr/bin/open', ['-n', '-W', '-a', installation,
+    '--env', `HOME=${home}`, '--env', 'YINAMP_LAUNCHER_NO_UI=1', '--env', 'ELECTRON_RUN_AS_NODE',
+    '--stdout', join(output, 'process.log'), '--stderr', join(output, 'process.log'),
+    '--args', '--inspect=127.0.0.1:0'], { env: environment, stdio: ['ignore', log.fd, log.fd] })
+    : spawn(executable, ['--inspect=127.0.0.1:0'], { env: environment, stdio: ['ignore', log.fd, log.fd] });
   const exited = new Promise((resolve, reject) => { running.once('exit', (code, signal) => resolve({ code, signal })); running.once('error', reject); });
   const inspectorURL = await waitFor(async () => {
     const text = await readFile(join(profile, 'launcher.log'), 'utf8').catch(() => '');
@@ -118,6 +123,7 @@ try {
   }, 'the isolated Electron inspector', report.coldStart ? 180000 : 45000);
   inspector = await connect(inspectorURL);
   childPID = await inspector.evaluate('process.pid');
+  launcherPID = await inspector.evaluate('process.ppid');
   const electronRequire = `process.getBuiltinModule('module').createRequire(${JSON.stringify(join(resolve('.'), 'package.json'))})('electron')`;
   await inspector.evaluate(`globalThis.__installTestElectron = ${electronRequire}; true`);
   const healthyState = await waitFor(async () => {
@@ -152,11 +158,23 @@ try {
   assert.ok(await exists(installation)); assert.ok(await exists(profile));
   await pass('Cancel through the real app menu preserved the installation, profile, and running app');
 
+  const { stdout: processes } = await run('/bin/ps', ['-axo', 'pid=,comm=']);
+  const ownedPIDs = processes.split('\n').flatMap(line => {
+    const match = line.trim().match(/^(\d+)\s+(.+)$/);
+    return match && (match[2].startsWith(installation + '/') || match[2].startsWith(profile + '/')) ? [Number(match[1])] : [];
+  });
+  assert.ok(ownedPIDs.includes(childPID));
+  assert.ok(ownedPIDs.includes(launcherPID));
   await inspector.evaluate(`process.env.YINAMP_TEST_CONFIRMATION = 'uninstall'; setTimeout(() => globalThis.__installTestMenuItem.click(), 100); true`);
   inspector.close(); inspector = null;
   let timer;
   const result = await Promise.race([exited, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Uninstall did not finish')), 20000); })]).finally(() => clearTimeout(timer));
   assert.deepEqual(result, { code: 0, signal: null });
+  const deadline = Date.now() + 10000;
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { if (error.code === 'ESRCH') return false; throw error; } };
+  while (ownedPIDs.some(alive) && Date.now() < deadline) await sleep(100);
+  assert.deepEqual(ownedPIDs.filter(alive), [], 'All processes belonging to this disposable installation must exit');
+  await pass('app, native launcher, and Electron helpers all exited');
   assert.equal(await exists(installation), false);
   assert.equal(await exists(profile), false);
   const events = (await readFile(join(output, 'process.log'), 'utf8')).split('\n').flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } });
@@ -191,7 +209,8 @@ try {
     if (childPID) try { process.kill(childPID, 'SIGTERM'); } catch {}
     await sleep(500);
     if (running.exitCode === null) {
-      try { process.kill(-running.pid, 'SIGTERM'); } catch { /* Test process group already exited. */ }
+      if (launcherPID) try { process.kill(launcherPID, 'SIGTERM'); } catch { /* Test launcher already exited. */ }
+      running.kill('SIGTERM');
     }
   }
   if (mounted) await run('/usr/bin/hdiutil', ['detach', mount]).catch(error => { report.detachError = error.message; });
