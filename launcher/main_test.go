@@ -22,7 +22,7 @@ import (
 
 func init() {
 	progress = noProgress
-	prepare = func(string) error { return nil }
+	prepare = func(context.Context, string) error { return nil }
 }
 
 type transport func(*http.Request) (*http.Response, error)
@@ -439,5 +439,40 @@ func TestSetupProgressTracksWorkAndCompletesOnlyAfterInstall(t *testing.T) {
 				t.Fatal("cached launch unnecessarily showed a loader")
 			}
 		})
+	}
+}
+
+func TestLoaderSurvivesPreparationAndClosesOnVisiblePlayer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture")
+	}
+	profile := t.TempDir()
+	closedPath := filepath.Join(profile, "loader-closed")
+	relative, _ := filepath.Rel("runtime", binary("runtime"))
+	// The child fails if the loader disappeared before it could become visible,
+	// then waits for the supervisor to close it after the readiness signal.
+	script := fmt.Sprintf("#!/bin/sh\n[ ! -e '%s' ] || exit 10\nprintf ready > \"$YINAMP_NATIVE_READY\"\ni=0\nwhile [ ! -e '%s' ]; do\n i=$((i+1)); [ $i -lt 100 ] || exit 11\n sleep 0.02\ndone\n", closedPath, closedPath)
+	data := zipBytes(t, map[string]string{filepath.ToSlash(relative): script})
+	r := testRuntime("44.7.0", data)
+	hits := 0
+	serve(t, map[string][]byte{r.URL: data}, &hits)
+	original := progress
+	t.Cleanup(func() { progress = original })
+	opened := 0
+	progress = func() *progressWindow {
+		opened++
+		return &progressWindow{Update: func(string, int, float64) {}, Close: func() { _ = os.WriteFile(closedPath, []byte("closed"), 0600) }}
+	}
+	payload := []byte("application")
+	sum := sha256.Sum256(payload)
+	config := Config{Platform: platform(), SHA256: hex.EncodeToString(sum[:]), Runtime: r}
+	if err := launch(config, payload, []string{"--profile=" + profile}); err != nil {
+		t.Fatal(err)
+	}
+	if opened != 1 {
+		t.Fatalf("opened %d loaders", opened)
+	}
+	if _, err := os.Stat(closedPath); err != nil {
+		t.Fatal("loader was not closed", err)
 	}
 }

@@ -15,10 +15,12 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -26,7 +28,7 @@ import (
 var assets embed.FS
 
 var progress = showProgress
-var prepare = prepareOfficialRuntime
+var prepare = prepareOfficialRuntimeContext
 
 const releases = "https://github.com/electron/electron/releases/download/"
 const runtimeRevision = "2"
@@ -125,6 +127,10 @@ func atomicWrite(path string, data []byte) error {
 		file.Close()
 		return err
 	}
+	if err = file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
 	if err = file.Close(); err != nil {
 		return err
 	}
@@ -209,6 +215,9 @@ func inside(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel)
 }
 func unzip(source, destination string, updates ...func(float64)) error {
+	return unzipContext(context.Background(), source, destination, updates...)
+}
+func unzipContext(ctx context.Context, source, destination string, updates ...func(float64)) error {
 	report := func(float64) {}
 	if len(updates) > 0 {
 		report = updates[0]
@@ -221,14 +230,23 @@ func unzip(source, destination string, updates ...func(float64)) error {
 	var symlinks []*zip.File
 	var total uint64
 	for _, entry := range archive.File {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if entry.UncompressedSize64 > 1500*1024*1024-total {
 			return errors.New("expanded runtime is too large")
 		}
 		total += entry.UncompressedSize64
 	}
+	if err := requireSpace(filepath.Dir(destination), total); err != nil {
+		return err
+	}
 	var extracted int64
 	var expanded uint64
 	for _, entry := range archive.File {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if strings.HasPrefix(entry.Name, "/") || filepath.IsAbs(entry.Name) || strings.Contains(entry.Name, `\`) || strings.Contains(entry.Name, ":") {
 			return errors.New("invalid archive path")
 		}
@@ -266,7 +284,7 @@ func unzip(source, destination string, updates ...func(float64)) error {
 			return e
 		}
 		counter := &progressWriter{Written: extracted, Total: int64(total), Report: report}
-		_, e = io.Copy(io.MultiWriter(output, counter), io.LimitReader(input, 1500*1024*1024+1))
+		_, e = io.Copy(io.MultiWriter(output, counter), io.LimitReader(cancelReader{ctx, input}, 1500*1024*1024+1))
 		extracted = counter.Written
 		input.Close()
 		closeErr := output.Close()
@@ -311,6 +329,10 @@ func unzip(source, destination string, updates ...func(float64)) error {
 	return nil
 }
 func ensureRuntime(ctx context.Context, root string, r Runtime) (string, error) {
+	return ensureRuntimeProgress(ctx, root, r, progress)
+}
+
+func ensureRuntimeProgress(ctx context.Context, root string, r Runtime, openProgress func() *progressWindow) (result string, resultErr error) {
 	if err := validateRuntime(r); err != nil {
 		return "", err
 	}
@@ -322,6 +344,9 @@ func ensureRuntime(ctx context.Context, root string, r Runtime) (string, error) 
 		return "", err
 	}
 	defer unlock()
+	if err := recoverRuntimeInstalls(root); err != nil {
+		return "", err
+	}
 	destination := filepath.Join(root, runtimeKey(r))
 	marker := filepath.Join(destination, "runtime.json")
 	var installed Runtime
@@ -330,13 +355,36 @@ func ensureRuntime(ctx context.Context, root string, r Runtime) (string, error) 
 			return binary(destination), nil
 		}
 	}
-	window := progress()
+	if err := requireSpace(root, uint64(r.Size)+1500*1024*1024); err != nil {
+		return "", err
+	}
+	window := openProgress()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	go func() {
+		select {
+		case <-window.Cancelled:
+			cancel(progressStopReason(window))
+		case <-ctx.Done():
+		}
+	}()
 	defer window.Close()
 	temporary, err := os.MkdirTemp(root, ".install-")
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(temporary)
+	defer func() {
+		var cleanupErr error
+		if ctx.Err() != nil {
+			resultErr = context.Cause(ctx)
+			cleanupErr = cleanupSetup(temporary, window.Update)
+		} else {
+			cleanupErr = os.RemoveAll(temporary)
+		}
+		if err := cleanupErr; err != nil {
+			resultErr = fmt.Errorf("setup stopped (%v), but temporary files could not be removed: %w", resultErr, err)
+		}
+	}()
 	archive := filepath.Join(temporary, "runtime.zip")
 	if err = download(ctx, r, archive, window.Update); err != nil {
 		return "", err
@@ -346,25 +394,27 @@ func ensureRuntime(ctx context.Context, root string, r Runtime) (string, error) 
 		return "", err
 	}
 	window.Update("Unpacking Electron...", 3, 0)
-	if err = unzip(archive, expanded, func(fraction float64) { window.Update("Unpacking Electron...", 3, 100*fraction) }); err != nil {
+	if err = unzipContext(ctx, archive, expanded, func(fraction float64) { window.Update("Unpacking Electron...", 3, 100*fraction) }); err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	window.Update("Preparing Yinamp...", 4, 0)
-	if err = prepare(expanded); err != nil {
+	if err = prepare(ctx, expanded); err != nil {
 		return "", err
 	}
 	if _, err = os.Stat(binary(expanded)); err != nil {
 		return "", errors.New("runtime executable is missing")
 	}
 	data, _ := json.Marshal(r)
-	if err = os.WriteFile(filepath.Join(expanded, "runtime.json"), data, 0600); err != nil {
+	if err = atomicWrite(filepath.Join(expanded, "runtime.json"), data); err != nil {
 		return "", err
 	}
-	// A mismatching cache is never used. Installation becomes visible only when complete.
-	if err = os.RemoveAll(destination); err != nil {
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if err = os.Rename(expanded, destination); err != nil {
+	if err = commitRuntime(root, expanded, destination); err != nil {
 		return "", err
 	}
 	window.Update("Preparing Yinamp...", 4, 100)
@@ -400,6 +450,10 @@ func run() error {
 	return launch(config, payload, os.Args[1:])
 }
 func launch(config Config, payload []byte, args []string) error {
+	signals, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	ctx, cancel := context.WithCancelCause(signals)
+	defer cancel(nil)
 	if config.Platform != platform() {
 		return errors.New("this download is for a different operating system or processor")
 	}
@@ -429,6 +483,9 @@ func launch(config Config, payload []byte, args []string) error {
 	}
 	archive := filepath.Join(base, "app.asar")
 	if sum, _ := hashFile(archive); sum != config.SHA256 {
+		if err := requireSpace(base, uint64(len(payload))); err != nil {
+			return err
+		}
 		if err = atomicWrite(archive, payload); err != nil {
 			return err
 		}
@@ -452,12 +509,37 @@ func launch(config Config, payload []byte, args []string) error {
 	defer os.RemoveAll(session)
 	requestPath := filepath.Join(session, "request.json")
 	runtimeFailure := ""
+	var loader *progressWindow
+	defer func() {
+		if loader != nil {
+			loader.Close()
+		}
+	}()
+	openLoader := func() *progressWindow {
+		if loader == nil {
+			loader = progress()
+			currentLoader := loader
+			signal := currentLoader.Cancelled
+			go func() {
+				select {
+				case <-signal:
+					cancel(progressStopReason(currentLoader))
+				case <-ctx.Done():
+				}
+			}()
+		}
+		// Keep the native UI through runtime startup, until the player is visible.
+		return &progressWindow{Update: loader.Update, Close: func() {}, Cancelled: loader.Cancelled, Failure: loader.Failure}
+	}
 	for attempt := 0; ; attempt++ {
 		if attempt >= 8 {
 			return errors.New("Yinamp could not select a working runtime; please reopen it")
 		}
-		executable, e := ensureRuntime(context.Background(), runtimeRoot, current)
+		executable, e := ensureRuntimeProgress(ctx, runtimeRoot, current, openLoader)
 		if e != nil {
+			if ctx.Err() != nil {
+				return e
+			}
 			if current != config.Runtime {
 				runtimeFailure = "runtime download failed: " + e.Error()
 				current = config.Runtime
@@ -466,12 +548,53 @@ func launch(config Config, payload []byte, args []string) error {
 			return e
 		}
 		os.Remove(requestPath)
-		child := exec.Command(executable, append([]string{archive, "--profile=" + profile}, args...)...)
-		child.Env = environment(map[string]string{"YINAMP_NATIVE_BOOTSTRAP": archive, "YINAMP_NATIVE_REQUEST": requestPath, "YINAMP_NATIVE_ERROR": runtimeFailure, "YINAMP_NATIVE_UNINSTALL": uninstallAvailable(profile), "YINAMP_NATIVE_UNINSTALL_HELPER": uninstallHelper(profile)})
+		readyPath := filepath.Join(session, "ready")
+		os.Remove(readyPath)
+		if loader != nil {
+			loader.Update("Opening Yinamp...", 5, 0)
+		}
+		child := exec.CommandContext(ctx, executable, append([]string{archive, "--profile=" + profile}, args...)...)
+		child.Env = environment(map[string]string{"YINAMP_NATIVE_READY": readyPath, "YINAMP_NATIVE_BOOTSTRAP": archive, "YINAMP_NATIVE_REQUEST": requestPath, "YINAMP_NATIVE_ERROR": runtimeFailure, "YINAMP_NATIVE_UNINSTALL": uninstallAvailable(profile), "YINAMP_NATIVE_UNINSTALL_HELPER": uninstallHelper(profile)})
 		child.Stdout = log
 		child.Stderr = log
 		startedAt := time.Now()
+		done := make(chan struct{})
+		watched := make(chan struct{})
+		go func() {
+			defer close(watched)
+			if loader == nil {
+				return
+			}
+			ticker := time.NewTicker(40 * time.Millisecond)
+			defer ticker.Stop()
+			// Older app archives may not acknowledge visibility. Bound that wait.
+			timeout := time.NewTimer(30 * time.Second)
+			defer timeout.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-timeout.C:
+					loader.Close()
+					return
+				case <-ticker.C:
+					if _, e := os.Stat(readyPath); e == nil {
+						loader.Close()
+						return
+					}
+				}
+			}
+		}()
 		err = child.Run()
+		close(done)
+		<-watched
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
+		if loader != nil {
+			loader.Close()
+			loader = nil
+		}
 		code := 0
 		if err != nil {
 			var exit *exec.ExitError
@@ -569,15 +692,62 @@ func cleanup(root, profile string, bundled Runtime) {
 	defer unlock()
 	entries, _ := os.ReadDir(root)
 	for _, entry := range entries {
-		if entry.IsDir() && regexp.MustCompile(`^\d+\.\d+\.\d+-r[12]$`).MatchString(entry.Name()) && !keep[entry.Name()] {
+		if strings.HasPrefix(entry.Name(), ".previous-") {
+			key := strings.TrimPrefix(entry.Name(), ".previous-")
+			if runtimeDirectoryPattern.MatchString(key) {
+				if _, err := os.Stat(filepath.Join(root, key, "runtime.json")); err == nil {
+					_ = os.RemoveAll(filepath.Join(root, entry.Name()))
+				}
+			}
+		}
+		if entry.IsDir() && runtimeDirectoryPattern.MatchString(entry.Name()) && !keep[entry.Name()] {
 			_ = os.RemoveAll(filepath.Join(root, entry.Name()))
 		}
 	}
 }
 func main() {
 	if err := run(); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		fmt.Fprintln(os.Stderr, err)
 		showError(err.Error())
 		os.Exit(1)
 	}
+}
+
+// Stop extraction promptly even within a large archive entry.
+type cancelReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r cancelReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
+}
+
+// Drain the meter as the disposable installation tree is removed.
+func cleanupSetup(root string, report func(string, int, float64)) error {
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	report("Cleaning up temporary files...", 6, 100)
+	for i := len(paths) - 1; i >= 0; i-- {
+		if err := os.Remove(paths[i]); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		report("Cleaning up temporary files...", 6, 100*float64(i)/float64(len(paths)))
+	}
+	return nil
 }

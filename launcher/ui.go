@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -18,8 +20,10 @@ import (
 var progressScripts embed.FS
 
 type progressWindow struct {
-	Update func(string, int, float64)
-	Close  func()
+	Update    func(string, int, float64)
+	Close     func()
+	Cancelled <-chan struct{}
+	Failure   func() error
 }
 type progressState struct {
 	Action  string  `json:"action"`
@@ -45,7 +49,7 @@ func progressCommand(path string) *exec.Cmd {
 		command.Env = append(os.Environ(), "YINAMP_PROGRESS_FILE="+path)
 		return command
 	default:
-		command := exec.Command("zenity", "--progress", "--no-cancel", "--title=Yinamp", "--text=Downloading Electron...  1/4", "--width=360", "--percentage=0")
+		command := exec.Command("zenity", "--progress", "--title=Yinamp", "--text=Downloading Electron...  1/5", "--width=360", "--percentage=0")
 		command.Env = append(os.Environ(), "GTK_THEME=Adwaita:dark")
 		return command
 	}
@@ -56,30 +60,70 @@ func showProgress() *progressWindow {
 	}
 	directory, err := os.MkdirTemp("", "yinamp-progress-")
 	if err != nil {
-		return noProgress()
+		return failedProgress(err)
 	}
 	path := filepath.Join(directory, "progress.json")
 	data, _ := json.Marshal(progressState{"Downloading Electron...", 1, 0})
 	if err = os.WriteFile(path, data, 0600); err != nil {
 		os.RemoveAll(directory)
-		return noProgress()
+		return failedProgress(err)
 	}
 	command := progressCommand(path)
 	input, err := command.StdinPipe()
 	if err != nil {
 		os.RemoveAll(directory)
-		return noProgress()
+		return failedProgress(err)
 	}
 	if err = command.Start(); err != nil {
 		input.Close()
 		os.RemoveAll(directory)
-		return noProgress()
+		return failedProgress(err)
 	}
 	var mutex sync.Mutex
 	last := time.Time{}
 	lastStep := 0
 	closed := false
+	cancelled := make(chan struct{})
+	var cancelOnce sync.Once
+	signalCancel := func() { cancelOnce.Do(func() { close(cancelled) }) }
+	exited := make(chan struct{})
+	var failure error
+	go func() {
+		waitErr := command.Wait()
+		mutex.Lock()
+		if !closed {
+			_, cancelErr := os.Stat(path + ".cancel")
+			// Zenity uses exit 1 for Cancel/window close. Native helpers use the file.
+			explicit := cancelErr == nil || (runtime.GOOS == "linux" && command.ProcessState.ExitCode() == 1)
+			if !explicit {
+				failure = errors.New("setup window closed unexpectedly")
+				if waitErr != nil {
+					failure = fmt.Errorf("setup window failed: %w", waitErr)
+				}
+			}
+			signalCancel()
+		}
+		mutex.Unlock()
+		close(exited)
+	}()
+	go func() {
+		ticker := time.NewTicker(40 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-exited:
+				return
+			case <-ticker.C:
+				if _, err := os.Stat(path + ".cancel"); err == nil {
+					signalCancel()
+					return
+				}
+			}
+		}
+	}()
 	return &progressWindow{
+		Cancelled: cancelled,
+		Failure:   func() error { mutex.Lock(); defer mutex.Unlock(); return failure },
 		Update: func(action string, step int, percent float64) {
 			mutex.Lock()
 			defer mutex.Unlock()
@@ -87,13 +131,13 @@ func showProgress() *progressWindow {
 				return
 			}
 			percent = math.Max(0, math.Min(100, percent))
-			if step == lastStep && percent < 100 && time.Since(last) < 80*time.Millisecond {
+			if step == lastStep && percent > 0 && percent < 100 && time.Since(last) < 80*time.Millisecond {
 				return
 			}
 			last = time.Now()
 			lastStep = step
 			if runtime.GOOS == "linux" {
-				_, _ = fmt.Fprintf(input, "%d\n# %s  %d/4\n", int(percent), action, step)
+				_, _ = fmt.Fprintf(input, "%d\n# %s  %d/5\n", int(percent), action, step)
 				return
 			}
 			data, _ := json.Marshal(progressState{action, step, percent})
@@ -101,14 +145,15 @@ func showProgress() *progressWindow {
 		},
 		Close: func() {
 			mutex.Lock()
-			defer mutex.Unlock()
 			if closed {
+				mutex.Unlock()
 				return
 			}
 			closed = true
 			_ = input.Close()
 			_ = command.Process.Kill()
-			_ = command.Wait()
+			mutex.Unlock()
+			<-exited
 			_ = os.RemoveAll(directory)
 		},
 	}
@@ -148,4 +193,22 @@ end run`, message)
 		command = exec.Command("zenity", "--error", "--title=Yinamp could not start", "--text="+message)
 	}
 	_ = command.Run()
+}
+
+func progressStopReason(window *progressWindow) error {
+	if window.Failure != nil {
+		if err := window.Failure(); err != nil {
+			return err
+		}
+	}
+	return context.Canceled
+}
+
+func failedProgress(err error) *progressWindow {
+	window := noProgress()
+	stopped := make(chan struct{})
+	close(stopped)
+	window.Cancelled = stopped
+	window.Failure = func() error { return fmt.Errorf("could not open setup window: %w", err) }
+	return window
 }

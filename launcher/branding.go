@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -25,6 +26,9 @@ func brandedPlist(data []byte) ([]byte, error) {
 // The executable and frameworks remain official Electron binaries. No certificate
 // or developer tools are needed: codesign is part of macOS and uses an ad-hoc signature.
 func prepareOfficialRuntime(root string) error {
+	return prepareOfficialRuntimeContext(context.Background(), root)
+}
+func prepareOfficialRuntimeContext(ctx context.Context, root string) error {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
@@ -56,8 +60,11 @@ func prepareOfficialRuntime(root string) error {
 	}
 	// Intel archives can contain unsigned nested helpers. Prepare the entire
 	// private runtime tree with ad-hoc signatures, including those helpers.
-	output, err := exec.Command("/usr/bin/codesign", "--force", "--deep", "--sign", "-", destination).CombinedOutput()
+	output, err := exec.CommandContext(ctx, "/usr/bin/codesign", "--force", "--deep", "--sign", "-", destination).CombinedOutput()
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return errors.New("could not prepare the Electron app: " + string(output))
 	}
 	return nil

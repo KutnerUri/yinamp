@@ -16,7 +16,8 @@
     "prototype": "node experiments/music-sources/launch.mjs",
     "build:pages": "node scripts/build-pages.mjs",
     "build:desktop": "node scripts/build-desktop.mjs",
-    "pack:desktop": "node scripts/build-desktop.mjs --dir"
+    "pack:desktop": "node scripts/build-desktop.mjs --dir",
+    "preview:loader": "node scripts/preview-loader.mjs"
   },
   "devDependencies": {
     "electron": "44.7.0",

@@ -525,6 +525,9 @@ async function start() {
   accountPoll = setInterval(() => void refreshAccountStatus(), 4000);
   await win.loadURL(origin + '/');
   win.show();
+  if (process.env.YINAMP_NATIVE_READY) {
+    await writeFile(process.env.YINAMP_NATIVE_READY, 'ready', { mode: 0o600 }).catch(() => {});
+  }
   app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
   win.on('leave-full-screen', () => send({ type: 'fullscreen', enabled: false }));
   win.on('closed', () => { clearInterval(poll); clearInterval(spectrumPoll); clearInterval(accountPoll); if (view.webContents && !view.webContents.isDestroyed()) view.webContents.close(); app.quit(); });
