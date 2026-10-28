@@ -25,6 +25,18 @@ mac:
   identity: null
 dmg:
   icon: build/icon.icns
+  background: build/dmg/background.jpg
+  window:
+    width: 900
+    height: 700
+  iconSize: 64
+  contents:
+    - x: 340
+      y: 65
+    - x: 560
+      y: 65
+      type: link
+      path: /Applications
 win:
   target: portable
 linux:
