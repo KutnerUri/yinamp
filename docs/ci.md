@@ -1,18 +1,20 @@
 # Desktop CI
 
-## Independent tests and demo deployment
+## Shared checks and deployment
 
-**Tests** runs on branch pushes, pull requests and manual requests. It is also a reusable workflow called by **Latest desktop build**, so desktop publishing cannot bypass the same JavaScript and Go checks.
+**Latest desktop build** is the entry point for pushes, pull requests and manual runs. It calls the reusable **Tests** workflow once for JavaScript and Go checks, then independently gates **Deploy demo** and **Desktop release** on that success. The existing entry-point workflow file is retained so published updater build numbers continue using its existing run counter.
 
-**Deploy demo** runs separately after a successful Tests run from this repository's default branch. It checks out the exact tested commit. Failed, cancelled, PR and fork runs cannot deploy. To request a fresh demo deployment, manually run **Tests** on the default branch; a passing run starts deployment. The new workflow triggers take effect after the workflow files are pushed (the demo's `workflow_run` listener must exist on the default branch).
+A changed-file selector reads the complete local git diff (including deleted files), rather than a truncated GitHub file list. Shared UI, skin, dependency and workflow changes select both deployment paths; launcher, Electron and desktop packaging changes select desktop; `src/pages-demo.js` and the Pages build script select only the demo. Documentation-only changes run checks without deployment. The path rules live in `scripts/ci-changes.mjs` and must stay aligned with shipped assets and packaging scripts.
+
+Automatic deployments run only on the appropriate default/main branch. Pull requests and branch pushes run checks without publishing or deploying. Pages checks out the caller's exact tested commit; it does not follow a separate `workflow_run` event or rebuild the tests. Demo deployment can finish even if desktop packaging subsequently fails, and vice versa. The reusable Pages workflow also guards against PR and non-default-branch deployment.
+
+Use **Actions → Latest desktop build → Run workflow** for manual runs. The **desktop** and **demo** options default to enabled; disable both for checks only. A main-branch desktop run publishes normally; selecting another branch publishes a desktop prerelease. Demo deployment is always restricted to the default branch. The desktop packaging/version/publication sequence remains serialized, and publishing still rejects a stale main commit.
 
 ## Desktop packages
 
-**Windows build check** runs immediately on pushes affecting packaging or the launcher, and can also be started manually from Actions on a selected branch. It builds only the Windows portable EXE, caches Electron and packaging downloads, and saves a `windows-installer` artifact for seven days. It does not wait for other platforms, reserve a release version or publish a release. Use it for a shorter packaging feedback loop; the full desktop workflow still runs the lifecycle checks before publishing.
+**Windows build check** remains a fast branch/manual packaging check. Its push trigger excludes `main`, where the full desktop pipeline already packages Windows. It uses the same reusable **Package desktop target** workflow as the desktop matrix, with full lifecycle tests disabled and a `windows-installer` artifact. The Windows packaging caches are shared by both callers. It does not reserve a release version or publish a release.
 
-Push directly to `main` to run **Latest desktop build** when shipped app files, dependencies, packaging, tests or this workflow change. Documentation, demo-only files and experiments do not trigger a desktop release. Shared player code does, since it also ships in the app. No pull request is required.
-
-Use **Actions → Latest desktop build → Run workflow** on `main` to force a complete run regardless of which files changed. Manual runs on another branch run the same build and tests, then publish a prerelease without changing the main update feed. Branch pushes do not automatically run the desktop workflow. The push path filter in the workflow must stay aligned with `electron-builder.yml` and its build/test scripts. Every published build still passes all desktop tests. Fresh-machine Gatekeeper/SmartScreen interactions and Linux distribution-specific dependencies require separate installer testing; the CI runners are not a substitute for those checks.
+The full desktop matrix uses **Package desktop target** with all native launcher, smoke, lifecycle and installer checks enabled. All targets receive one allocated version. Fresh-machine Gatekeeper/SmartScreen interactions and Linux distribution-specific dependencies require separate installer testing; the CI runners are not a substitute for those checks.
 
 After the regular tests and native Go launcher tests, CI reserves one shared semantic version, then four parallel jobs package and check Apple Silicon Mac, Intel Mac, Windows x64 and Linux x64. **Desktop package smoke tests** check the bundled assets and dependencies. **Desktop lifecycle tests** exercise the packaged application as a whole, using an isolated profile:
 

@@ -2,328 +2,58 @@ name: Latest desktop build
 
 on:
   push:
-    branches: [main]
-    # Keep aligned with electron-builder.yml and the scripts used below.
-    paths:
-      - '.github/workflows/latest-build.yml'
-      - '.github/workflows/tests.yml'
-      - 'electron-builder.yml'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - '.npmrc'
-      - '.node-version'
-      - '.nvmrc'
-      - 'build-info.json'
-      - 'index.html'
-      - 'LICENSE'
-      - '*.mjs'
-      - 'electron/**'
-      - 'src/**'
-      - 'skins/**'
-      - 'build/**'
-      - 'tests/**'
-      - 'launcher/**'
-      - 'scripts/build-desktop.mjs'
-      - 'scripts/build-compact.mjs'
-      - 'scripts/build-universal-mac.mjs'
-      - 'scripts/check-universal-mac.mjs'
-      - 'scripts/electron-runtime.mjs'
-      - 'scripts/prepare-build.mjs'
-      - 'scripts/desktop-version.mjs'
-      - 'scripts/allocate-desktop-version.mjs'
-      - 'scripts/report-desktop.cjs'
-      - 'scripts/create-update.mjs'
-      - 'scripts/publish-latest.mjs'
+  pull_request:
   workflow_dispatch:
+    inputs:
+      desktop:
+        description: Build and publish desktop packages after tests (branches publish previews)
+        type: boolean
+        default: true
+      demo:
+        description: Deploy demo after tests (default branch only)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
-# Let publishing finish; a newer push queues behind the current build.
+# Let main publishing finish. Branch/PR runs can supersede earlier checks.
 concurrency:
-  group: latest-desktop-build-${{ github.ref }}
-  cancel-in-progress: false
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/main' }}
 
 jobs:
-  test:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      desktop: ${{ steps.select.outputs.desktop }}
+      demo: ${{ steps.select.outputs.demo }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Select jobs for the tested commit
+        id: select
+        run: node scripts/ci-changes.mjs
+
+  checks:
     uses: ./.github/workflows/tests.yml
 
-  version:
-    needs: test
-    runs-on: ubuntu-24.04
+  demo:
+    needs: [checks, changes]
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.changes.outputs.demo == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
+
+  desktop:
+    needs: [checks, changes]
+    if: (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && needs.changes.outputs.desktop == 'true'
     permissions:
       contents: write
-    outputs:
-      version: ${{ steps.allocate.outputs.version }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-      - name: Reserve a desktop version
-        id: allocate
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: node scripts/allocate-desktop-version.mjs
-
-  build:
-    needs: [test, version]
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            platform: mac
-            arch: arm64
-            runtime: darwin-arm64
-            executable: release/mac-arm64/Yinamp.app/Contents/MacOS/Yinamp
-            archive: release/mac-arm64/Yinamp.app/Contents/Resources/app.asar
-          - os: macos-15-intel
-            platform: mac
-            arch: x64
-            runtime: darwin-x64
-            executable: release/mac/Yinamp.app/Contents/MacOS/Yinamp
-            archive: release/mac/Yinamp.app/Contents/Resources/app.asar
-          - os: windows-2025
-            platform: win
-            arch: x64
-            runtime: win32-x64
-            executable: release/win-unpacked/Yinamp.exe
-            archive: release/win-unpacked/resources/app.asar
-          - os: ubuntu-24.04
-            platform: linux
-            arch: x64
-            runtime: linux-x64
-            executable: release/linux-unpacked/yinamp
-            archive: release/linux-unpacked/resources/app.asar
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v6
-        with:
-          version: '11.15.1'
-      - run: pnpm install --frozen-lockfile
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 'stable'
-          cache: false
-      - name: Native launcher platform tests
-        run: go test ./...
-        working-directory: launcher
-      - name: Prepare Linux virtual display
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y xvfb libgtk-3-0t64 libnss3 libgbm1 libasound2t64
-      - name: Package desktop app
-        run: npm run build:desktop -- --${{ matrix.platform }} --${{ matrix.arch }}
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          YINAMP_BUILD_VERSION: ${{ needs.version.outputs.version }}
-      - name: Desktop package smoke tests
-        run: '"$APP_EXECUTABLE" tests/desktop/package-smoke.mjs "$APP_ARCHIVE"'
-        env:
-          ELECTRON_RUN_AS_NODE: '1'
-          APP_EXECUTABLE: ${{ matrix.executable }}
-          APP_ARCHIVE: ${{ matrix.archive }}
-      - name: Desktop lifecycle tests (startup, update, rollback, recovery)
-        timeout-minutes: 5
-        env:
-          APP_EXECUTABLE: ${{ matrix.executable }}
-          APP_ARCHIVE: ${{ matrix.archive }}
-          YINAMP_UPDATE_TEST_OUTPUT: test-results/updates-${{ matrix.runtime }}
-        run: |
-          if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run --auto-servernum node tests/desktop/lifecycle.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
-          else
-            node tests/desktop/lifecycle.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
-          fi
-      - name: Compact launcher lifecycle tests (cached runtime, update, rollback)
-        timeout-minutes: 5
-        env:
-          APP_RUNTIME: release/checked-runtime-${{ matrix.runtime }}
-          APP_PLATFORM: ${{ matrix.runtime }}
-          APP_ARCHIVE: ${{ matrix.archive }}
-          YINAMP_UPDATE_TEST_OUTPUT: test-results/compact-${{ matrix.runtime }}
-        run: |
-          if [ "$RUNNER_OS" = macOS ]; then
-            LAUNCHER="release/compact-${APP_PLATFORM}/Yinamp.app/Contents/MacOS/Yinamp"
-          elif [ "$RUNNER_OS" = Windows ]; then
-            LAUNCHER="release/compact-${APP_PLATFORM}/Yinamp.exe"
-          else
-            LAUNCHER="release/compact-${APP_PLATFORM}/yinamp"
-          fi
-          export YINAMP_TEST_RUNTIME_DIRECTORY="$APP_RUNTIME"
-          if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run --auto-servernum node tests/desktop/lifecycle.mjs "$LAUNCHER" "$APP_ARCHIVE"
-          else
-            node tests/desktop/lifecycle.mjs "$LAUNCHER" "$APP_ARCHIVE"
-          fi
-      - name: macOS installer and uninstall integration
-        if: runner.os == 'macOS'
-        timeout-minutes: 5
-        env:
-          APP_ARCH: ${{ matrix.arch }}
-          APP_RUNTIME: release/checked-runtime-${{ matrix.runtime }}
-          APP_ARCHIVE: ${{ matrix.archive }}
-          YINAMP_INSTALL_TEST_OUTPUT: test-results/install-${{ matrix.runtime }}
-        run: node tests/desktop/install-uninstall.mjs "release/Yinamp-latest-mac-${APP_ARCH}.dmg" "$APP_RUNTIME" "$APP_ARCHIVE"
-      - name: Prepare versioned application update
-        run: node scripts/create-update.mjs "$APP_ARCHIVE" "$APP_PLATFORM"
-        env:
-          APP_ARCHIVE: ${{ matrix.archive }}
-          APP_PLATFORM: ${{ matrix.runtime }}
-      - name: Archive native Mac bundle for universal merge
-        if: runner.os == 'macOS'
-        run: tar -cf "release/compact-${{ matrix.runtime }}.tar" "build-info.json" -C release "compact-${{ matrix.runtime }}"
-      - uses: actions/upload-artifact@v7
-        if: runner.os == 'macOS'
-        with:
-          name: compact-${{ matrix.runtime }}
-          if-no-files-found: error
-          retention-days: 7
-          path: release/compact-${{ matrix.runtime }}.tar
-      - uses: actions/upload-artifact@v7
-        with:
-          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
-          if-no-files-found: error
-          retention-days: 7
-          path: |
-            release/*.dmg
-            release/*.exe
-            release/*.AppImage
-            release/*.asar
-            release/*.update.json
-      - name: Save failure diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: failure-${{ matrix.runtime }}
-          if-no-files-found: warn
-          retention-days: 7
-          path: |
-            test-results/updates-${{ matrix.runtime }}/process.log
-            test-results/updates-${{ matrix.runtime }}/report.json
-            test-results/updates-${{ matrix.runtime }}/update-state.json
-            test-results/updates-${{ matrix.runtime }}/startup-diagnostics.jsonl
-            test-results/compact-${{ matrix.runtime }}/*.log
-            test-results/compact-${{ matrix.runtime }}/*.json
-            test-results/compact-${{ matrix.runtime }}/*.jsonl
-            test-results/install-${{ matrix.runtime }}/*.log
-            test-results/install-${{ matrix.runtime }}/*.json
-            test-results/install-${{ matrix.runtime }}/*.jsonl
-            release/builder-debug.yml
-            release/builder-effective-config.yaml
-
-  universal-mac:
-    needs: build
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v6
-        with:
-          version: '11.15.1'
-      - run: pnpm install --frozen-lockfile
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: compact-darwin-*
-          path: release
-          merge-multiple: true
-      - name: Test universal merge and signature verification
-        run: node --test tests/universal-mac.test.mjs
-      - name: Merge native bundles and package universal DMG
-        run: |
-          tar -xf release/compact-darwin-arm64.tar -C release
-          cp release/build-info.json build-info.json
-          tar -xf release/compact-darwin-x64.tar -C release
-          cmp build-info.json release/build-info.json
-          node scripts/build-universal-mac.mjs
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - uses: actions/upload-artifact@v7
-        with:
-          name: desktop-mac-universal
-          if-no-files-found: error
-          retention-days: 7
-          path: |
-            release/Yinamp-latest-mac-universal.dmg
-            release/build-info.json
-
-  test-universal-mac:
-    needs: universal-mac
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, macos-15-intel]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v6
-        with:
-          version: '11.15.1'
-      - run: pnpm install --frozen-lockfile
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 'stable'
-          cache: false
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: desktop-mac-*
-          path: release
-          merge-multiple: true
-      - name: Test the final universal DMG on native hardware
-        run: |
-          cp release/build-info.json build-info.json
-          node scripts/check-universal-mac.mjs
-        env:
-          YINAMP_INSTALL_TEST_OUTPUT: test-results/universal
-          YINAMP_INSTALL_COLD_START: '1'
-      - uses: actions/upload-artifact@v7
-        if: failure()
-        with:
-          name: failure-universal-${{ matrix.os }}
-          if-no-files-found: warn
-          path: test-results/universal
-
-  publish:
-    needs: [build, test-universal-mac]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: desktop-*
-          path: downloads
-          merge-multiple: true
-      - name: Publish desktop build (main also updates latest)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: node scripts/publish-latest.mjs downloads
+    uses: ./.github/workflows/desktop-release.yml

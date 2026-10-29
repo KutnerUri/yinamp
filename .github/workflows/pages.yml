@@ -1,32 +1,23 @@
 name: Deploy demo
 
 on:
-  workflow_run:
-    workflows: [Tests]
-    types: [completed]
-    branches: [main, master]
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pages-${{ github.event.workflow_run.head_branch }}
-  cancel-in-progress: true
+  group: pages-${{ github.ref }}
+  # This workflow is nested: never cancel a caller that may be publishing desktop assets.
+  cancel-in-progress: false
 
 jobs:
   build:
-    # workflow_run can access deployment credentials. Only build a successful
-    # test run from this repository's default branch, never a PR or fork.
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event != 'pull_request' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      github.event.workflow_run.head_branch == github.event.repository.default_branch
+    # Defense in depth: deployment is limited to this repository's default branch.
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: '22'

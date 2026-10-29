@@ -1,0 +1,177 @@
+name: Package desktop target
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        required: true
+      platform:
+        type: string
+        required: true
+      arch:
+        type: string
+        required: true
+      runtime:
+        type: string
+        required: true
+      executable:
+        type: string
+        required: true
+      archive:
+        type: string
+        required: true
+      artifact-name:
+        type: string
+        required: true
+      version:
+        type: string
+        default: ''
+      full-tests:
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    timeout-minutes: 30
+    runs-on: ${{ inputs.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v6
+        with:
+          version: '11.15.1'
+      - uses: actions/cache@v5
+        if: runner.os == 'Windows'
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: windows-packaging-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: false
+      - name: Native launcher platform tests
+        if: inputs.full-tests
+        run: go test ./...
+        working-directory: launcher
+      - name: Prepare Linux virtual display
+        if: inputs.full-tests && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y xvfb libgtk-3-0t64 libnss3 libgbm1 libasound2t64
+      - name: Package desktop app
+        run: npm run build:desktop -- --${{ inputs.platform }} --${{ inputs.arch }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          YINAMP_BUILD_VERSION: ${{ inputs.version }}
+      - name: Desktop package smoke tests
+        if: inputs.full-tests
+        run: '"$APP_EXECUTABLE" tests/desktop/package-smoke.mjs "$APP_ARCHIVE"'
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+          APP_EXECUTABLE: ${{ inputs.executable }}
+          APP_ARCHIVE: ${{ inputs.archive }}
+      - name: Desktop lifecycle tests (startup, update, rollback, recovery)
+        if: inputs.full-tests
+        timeout-minutes: 5
+        env:
+          APP_EXECUTABLE: ${{ inputs.executable }}
+          APP_ARCHIVE: ${{ inputs.archive }}
+          YINAMP_UPDATE_TEST_OUTPUT: test-results/updates-${{ inputs.runtime }}
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum node tests/desktop/lifecycle.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
+          else
+            node tests/desktop/lifecycle.mjs "$APP_EXECUTABLE" "$APP_ARCHIVE"
+          fi
+      - name: Compact launcher lifecycle tests (cached runtime, update, rollback)
+        if: inputs.full-tests
+        timeout-minutes: 5
+        env:
+          APP_RUNTIME: release/checked-runtime-${{ inputs.runtime }}
+          APP_PLATFORM: ${{ inputs.runtime }}
+          APP_ARCHIVE: ${{ inputs.archive }}
+          YINAMP_UPDATE_TEST_OUTPUT: test-results/compact-${{ inputs.runtime }}
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            LAUNCHER="release/compact-${APP_PLATFORM}/Yinamp.app/Contents/MacOS/Yinamp"
+          elif [ "$RUNNER_OS" = Windows ]; then
+            LAUNCHER="release/compact-${APP_PLATFORM}/Yinamp.exe"
+          else
+            LAUNCHER="release/compact-${APP_PLATFORM}/yinamp"
+          fi
+          export YINAMP_TEST_RUNTIME_DIRECTORY="$APP_RUNTIME"
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum node tests/desktop/lifecycle.mjs "$LAUNCHER" "$APP_ARCHIVE"
+          else
+            node tests/desktop/lifecycle.mjs "$LAUNCHER" "$APP_ARCHIVE"
+          fi
+      - name: macOS installer and uninstall integration
+        if: inputs.full-tests && runner.os == 'macOS'
+        timeout-minutes: 5
+        env:
+          APP_ARCH: ${{ inputs.arch }}
+          APP_RUNTIME: release/checked-runtime-${{ inputs.runtime }}
+          APP_ARCHIVE: ${{ inputs.archive }}
+          YINAMP_INSTALL_TEST_OUTPUT: test-results/install-${{ inputs.runtime }}
+        run: node tests/desktop/install-uninstall.mjs "release/Yinamp-latest-mac-${APP_ARCH}.dmg" "$APP_RUNTIME" "$APP_ARCHIVE"
+      - name: Prepare versioned application update
+        if: inputs.full-tests
+        run: node scripts/create-update.mjs "$APP_ARCHIVE" "$APP_PLATFORM"
+        env:
+          APP_ARCHIVE: ${{ inputs.archive }}
+          APP_PLATFORM: ${{ inputs.runtime }}
+      - name: Archive native Mac bundle for universal merge
+        if: inputs.full-tests && runner.os == 'macOS'
+        run: tar -cf "release/compact-${{ inputs.runtime }}.tar" "build-info.json" -C release "compact-${{ inputs.runtime }}"
+      - uses: actions/upload-artifact@v7
+        if: inputs.full-tests && runner.os == 'macOS'
+        with:
+          name: compact-${{ inputs.runtime }}
+          if-no-files-found: error
+          retention-days: 7
+          path: release/compact-${{ inputs.runtime }}.tar
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+            release/*.asar
+            release/*.update.json
+      - name: Save failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failure-${{ inputs.runtime }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            test-results/updates-${{ inputs.runtime }}/process.log
+            test-results/updates-${{ inputs.runtime }}/report.json
+            test-results/updates-${{ inputs.runtime }}/update-state.json
+            test-results/updates-${{ inputs.runtime }}/startup-diagnostics.jsonl
+            test-results/compact-${{ inputs.runtime }}/*.log
+            test-results/compact-${{ inputs.runtime }}/*.json
+            test-results/compact-${{ inputs.runtime }}/*.jsonl
+            test-results/install-${{ inputs.runtime }}/*.log
+            test-results/install-${{ inputs.runtime }}/*.json
+            test-results/install-${{ inputs.runtime }}/*.jsonl
+            release/builder-debug.yml
+            release/builder-effective-config.yaml
