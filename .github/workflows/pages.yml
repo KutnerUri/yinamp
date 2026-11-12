@@ -64,7 +64,8 @@ jobs:
       - name: Build demo with the git-derived version
         if: steps.select.outputs.changed == 'true'
         run: |
-          export YINAMP_BUILD_VERSION=$(node scripts/desktop-version.mjs)
+          YINAMP_BUILD_VERSION=$(node scripts/desktop-version.mjs)
+          export YINAMP_BUILD_VERSION
           npm run build:pages
       - uses: actions/upload-pages-artifact@v5
         if: steps.select.outputs.changed == 'true'

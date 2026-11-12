@@ -11,6 +11,8 @@
 
 Publish desktop and Deploy demo start through GitHub's `workflow_run` trigger, so they reuse the Tests result instead of running the tests again. They check out the exact commit Tests passed (`workflow_run` otherwise runs on the latest `main`). GitHub always uses the copy of a `workflow_run` workflow from `main`, so edits to these two files take effect automatically only after merging; on a branch, test them with a manual run.
 
+Before pushing workflow changes, run `npm run lint:workflows` (needs `brew install actionlint shellcheck`). It checks syntax, `${{ }}` expressions, runner labels and the shell code in `run:` steps, which GitHub otherwise only reports when that step runs.
+
 Publish desktop keeps the `latest-build.yml` file name on purpose: installed apps order updates by its run number, and renaming the file would restart the counter.
 
 **Skipping unchanged commits.** On `main`, `scripts/ci-changes.mjs` compares the tested commit with the last published one (the `latest-build` tag for desktop, `version.json` on the live site for the demo). Shared UI, skin, dependency and workflow changes select both; launcher, Electron and desktop packaging changes select desktop; `src/pages-demo.js` and the Pages build script select only the demo. Documentation-only commits are tested but not published. Because the comparison is against the last *published* commit, changes in a commit that was skipped, cancelled or failed are still picked up by the next one. Manual runs always publish.
