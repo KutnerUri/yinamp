@@ -7,6 +7,6 @@ const attempt = Number(process.env.GITHUB_RUN_ATTEMPT || 1);
 const id = process.env.GITHUB_RUN_ID ? `build-${process.env.GITHUB_RUN_ID}-${attempt}` : `local-${Date.now()}`;
 const version = process.env.YINAMP_BUILD_VERSION || pkg.version;
 if (!parseVersion(version)) throw new Error('Invalid desktop build version');
-export const metadata = { protocol: 1, id, number, attempt, commit: process.env.GITHUB_SHA || 'local', version, electron: pkg.devDependencies.electron };
+export const metadata = { protocol: 1, id, number, attempt, commit: process.env.YINAMP_COMMIT || process.env.GITHUB_SHA || 'local', version, electron: pkg.devDependencies.electron };
 await writeFile(new URL('build-info.json', root), JSON.stringify(metadata, null, 2) + '\n');
 console.log(`Desktop build: ${version} / ${id}`);

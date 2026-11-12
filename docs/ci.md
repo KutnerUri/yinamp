@@ -1,22 +1,29 @@
 # Desktop CI
 
-## Shared checks and deployment
+## Workflows
 
-**Latest desktop build** is the entry point for pushes, pull requests and manual runs. It calls the reusable **Tests** workflow once for JavaScript and Go checks, then independently gates **Deploy demo** and **Desktop release** on that success. The existing entry-point workflow file is retained so published updater build numbers continue using its existing run counter.
+| Workflow | File | Runs when |
+|---|---|---|
+| **Tests** | `tests.yml` | every push to every branch, or manually |
+| **Publish desktop** | `latest-build.yml` | after Tests passes for a push to `main`, or manually on any branch |
+| **Deploy demo** | `pages.yml` | after Tests passes for a push to `main`, or manually on `main` |
+| **Windows build check** | `windows-build.yml` | branch pushes that touch Windows packaging, or manually |
 
-A changed-file selector reads the complete local git diff (including deleted files), rather than a truncated GitHub file list. Shared UI, skin, dependency and workflow changes select both deployment paths; launcher, Electron and desktop packaging changes select desktop; `src/pages-demo.js` and the Pages build script select only the demo. Documentation-only changes run checks without deployment. The path rules live in `scripts/ci-changes.mjs` and must stay aligned with shipped assets and packaging scripts.
+Publish desktop and Deploy demo start through GitHub's `workflow_run` trigger, so they reuse the Tests result instead of running the tests again. They check out the exact commit Tests passed (`workflow_run` otherwise runs on the latest `main`). GitHub always uses the copy of a `workflow_run` workflow from `main`, so edits to these two files take effect automatically only after merging; on a branch, test them with a manual run.
 
-Automatic deployments run only on the appropriate default/main branch. Pull requests and branch pushes run checks without publishing or deploying. Pages checks out the caller's exact tested commit; it does not follow a separate `workflow_run` event or rebuild the tests. Demo deployment can finish even if desktop packaging subsequently fails, and vice versa. The reusable Pages workflow also guards against PR and non-default-branch deployment.
+Publish desktop keeps the `latest-build.yml` file name on purpose: installed apps order updates by its run number, and renaming the file would restart the counter.
 
-Use **Actions → Latest desktop build → Run workflow** for manual runs. The **desktop** and **demo** options default to enabled; disable both for checks only. A main-branch desktop run publishes normally; selecting another branch publishes a desktop prerelease. Demo deployment is always restricted to the default branch. The desktop packaging/version/publication sequence remains serialized, and publishing still rejects a stale main commit.
+**Skipping unchanged commits.** On `main`, `scripts/ci-changes.mjs` compares the tested commit with the last published one (the `latest-build` tag for desktop, `version.json` on the live site for the demo). Shared UI, skin, dependency and workflow changes select both; launcher, Electron and desktop packaging changes select desktop; `src/pages-demo.js` and the Pages build script select only the demo. Documentation-only commits are tested but not published. Because the comparison is against the last *published* commit, changes in a commit that was skipped, cancelled or failed are still picked up by the next one. Manual runs always publish.
+
+**Manual runs.** Actions → Publish desktop → Run workflow. On `main` it publishes normally; on another branch it publishes a prerelease preview and leaves `latest-build` unchanged. Publishing is serialized, and a stale `main` commit is not published.
 
 ## Desktop packages
 
-**Windows build check** remains a fast branch/manual packaging check. Its push trigger excludes `main`, where the full desktop pipeline already packages Windows. It uses the same reusable **Package desktop target** workflow as the desktop matrix, with full lifecycle tests disabled and a `windows-installer` artifact. The Windows packaging caches are shared by both callers. It does not reserve a release version or publish a release.
+**Windows build check** remains a fast branch/manual packaging check. Its push trigger excludes `main`, where the full desktop pipeline already packages Windows. It uses the same reusable **Package desktop target** workflow as the desktop matrix, with full lifecycle tests disabled and a `windows-installer` artifact. The Windows packaging caches are shared by both callers. It does not publish a release.
 
-The full desktop matrix uses **Package desktop target** with all native launcher, smoke, lifecycle and installer checks enabled. All targets receive one allocated version. Fresh-machine Gatekeeper/SmartScreen interactions and Linux distribution-specific dependencies require separate installer testing; the CI runners are not a substitute for those checks.
+The full desktop matrix uses **Package desktop target** with all native launcher, smoke, lifecycle and installer checks enabled. All targets receive the same git-derived version. Fresh-machine Gatekeeper/SmartScreen interactions and Linux distribution-specific dependencies require separate installer testing; the CI runners are not a substitute for those checks.
 
-After the regular tests and native Go launcher tests, CI reserves one shared semantic version, then four parallel jobs package and check Apple Silicon Mac, Intel Mac, Windows x64 and Linux x64. **Desktop package smoke tests** check the bundled assets and dependencies. **Desktop lifecycle tests** exercise the packaged application as a whole, using an isolated profile:
+After the regular tests and native Go launcher tests, CI computes the version, then four parallel jobs package and check Apple Silicon Mac, Intel Mac, Windows x64 and Linux x64. **Desktop package smoke tests** check the bundled assets and dependencies. **Desktop lifecycle tests** exercise the packaged application as a whole, using an isolated profile:
 
 1. The bundled app starts and its interface confirms readiness.
 2. A staged application update starts successfully.
@@ -60,11 +67,11 @@ The test also verifies that the native launcher, Electron and its helpers exit a
 
 ## Automatic versions
 
-`package.json` supplies the minimum intended stable version. Each main build reserves the next patch after all existing stable versions, unless the file requests a higher minor/major version. For example, with `1.2.0` in the file and `1.2.8` already used, CI chooses `1.2.9`; changing the file to `1.3.0` starts that series. Existing legacy releases are included when computing the next version.
+The version follows the code. `package.json` sets major.minor (and a starting patch, normally `0`); every commit on `main`'s first-parent line since that version was set adds one patch. A merge commit counts once, however many commits it brings in, so merge branches with `--no-ff`. Bump the minor in `package.json` for breaking changes or major features; the patch then restarts. `scripts/desktop-version.mjs` computes it from git history, so it needs a full clone (`fetch-depth: 0`).
 
-Allocation atomically creates a `desktop-v<version>` GitHub tag pointing to the workflow commit. If another build reserves the same version first, allocation retries. Failed builds leave their reservation in place, so patch numbers can have gaps. The single version-job output is passed to all platform packages and their update manifests. No source version files or branches are modified, avoiding routine merge conflicts. Only deliberate minor/major source edits need manual conflict resolution.
+Every commit has a version even when nothing is published, so the published releases can skip numbers. A rerun of the same commit gets the same version. No tags are reserved and nothing is written back to the repository. The demo and desktop builds of a commit show the same version.
 
-Branch builds reserve `<next-stable>-<branch>.<run-number>.<attempt>` versions, with the branch name normalized for semver. These do not consume the next stable version. They publish only their immutable prerelease; main builds publish stable releases and also refresh `latest-build`. Neither a failed matrix nor a branch preview can replace the main update feed. The workflow token needs write permission to reserve version tags and publish releases. Tags protected by repository rules must permit these reservations.
+Branch builds use `<version>-<branch>.<run-number>.<attempt>`, with the branch name normalized for semver. They publish only their own prerelease; `main` builds publish stable releases and also refresh `latest-build`. Neither a failed build nor a branch preview can replace the main update feed. Do not rewrite `main`'s history: that would change the count.
 
 ## Failure emails
 

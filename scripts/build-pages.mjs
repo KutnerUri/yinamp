@@ -1,4 +1,4 @@
-import { stampAppVersion } from '../app-version.mjs';
+import { stampAppVersion, version } from '../app-version.mjs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
@@ -24,4 +24,6 @@ html = html.replace('<body>', `<body>
   </aside>`);
 await writeFile(new URL('index.html', output), html);
 await writeFile(new URL('.nojekyll', output), '');
+// CI reads this from the live site to decide whether the next commit needs a deployment.
+await writeFile(new URL('version.json', output), JSON.stringify({ version, commit: process.env.YINAMP_COMMIT || process.env.GITHUB_SHA || 'local' }) + '\n');
 console.log('GitHub Pages demo built in dist/ (relative paths support any repository name).');

@@ -1,38 +1,37 @@
-// Select downstream jobs from the tested commit; no remote API or path-count limit.
-import { readFile, appendFile } from 'node:fs/promises';
+// Decide whether a commit needs a new desktop build or demo deployment, by comparing it
+// with the last commit that was published. Reads the full local git diff (including
+// deleted files), not GitHub's truncated file list.
+//   node scripts/ci-changes.mjs <desktop|demo> <last-published-commit or ""> <commit>
+import { appendFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export function selectTargets(files, { eventName, branch, defaultBranch = 'main', inputs = {} }) {
-  if (eventName === 'pull_request') return { desktop: false, demo: false };
-  if (eventName === 'workflow_dispatch') return {
-    desktop: inputs.desktop === true || inputs.desktop === 'true',
-    demo: branch === defaultBranch && (inputs.demo === true || inputs.demo === 'true'),
-  };
-  if (eventName !== 'push') return { desktop: false, demo: false };
-  const shared = file => /^\.github\/workflows\//.test(file) || ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', '.node-version', '.nvmrc', 'index.html', 'LICENSE', 'scripts/ci-changes.mjs'].includes(file);
+export function selectTargets(files) {
+  const shared = file => /^\.github\/workflows\//.test(file) || ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', '.node-version', '.nvmrc', 'index.html', 'LICENSE', 'scripts/ci-changes.mjs', 'scripts/desktop-version.mjs'].includes(file);
   return {
-    desktop: branch === 'main' && files.some(file => shared(file) ||
+    desktop: files.some(file => shared(file) ||
       (/^(electron|src|skins|build|tests|launcher)\//.test(file) && file !== 'src/pages-demo.js') ||
       /^[^/]+\.mjs$/.test(file) || file === 'electron-builder.yml' ||
-      /^scripts\/(build-(desktop|compact|universal-mac)|check-universal-mac|electron-runtime|prepare-build|desktop-version|allocate-desktop-version|create-update|publish-latest)\.mjs$/.test(file) || file === 'scripts/report-desktop.cjs'),
-    demo: branch === defaultBranch && files.some(file => shared(file) || /^(src|skins)\//.test(file) || ['scripts/build-pages.mjs', 'app-version.mjs'].includes(file)),
+      /^scripts\/(build-(desktop|compact|universal-mac)|check-universal-mac|electron-runtime|prepare-build|create-update|publish-latest)\.mjs$/.test(file) || file === 'scripts/report-desktop.cjs'),
+    demo: files.some(file => shared(file) || /^(src|skins)\//.test(file) || ['scripts/build-pages.mjs', 'app-version.mjs'].includes(file)),
   };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const event = JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8'));
-  const eventName = process.env.GITHUB_EVENT_NAME;
-  let files = [];
-  if (eventName === 'push') {
-    const head = process.env.GITHUB_SHA;
-    const base = event.before;
-    const args = base && !/^0+$/.test(base) ? ['diff', '--name-only', '-z', '--no-renames', base, head, '--'] : ['ls-tree', '-r', '--name-only', '-z', head, '--'];
-    files = execFileSync('git', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).split('\0').filter(Boolean);
+export function changedFiles(base, head, cwd = '.') {
+  const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  let known = false;
+  if (base && !/^0+$/.test(base)) {
+    try { git('merge-base', '--is-ancestor', base, head); known = true; } catch { /* unknown or rewritten base: treat everything as changed */ }
   }
-  const selected = selectTargets(files, { eventName, branch: process.env.GITHUB_REF_NAME, defaultBranch: event.repository.default_branch, inputs: event.inputs });
-  const output = Object.entries(selected).map(([name, value]) => `${name}=${value}\n`).join('');
-  await appendFile(process.env.GITHUB_OUTPUT, output);
-  process.stdout.write(output);
+  const output = known ? git('diff', '--name-only', '-z', '--no-renames', base, head, '--') : git('ls-tree', '-r', '--name-only', '-z', head, '--');
+  return output.split('\0').filter(Boolean);
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [target, base, head] = process.argv.slice(2);
+  if (!['desktop', 'demo'].includes(target) || !head) throw new Error('Usage: ci-changes.mjs <desktop|demo> <base> <head>');
+  const changed = selectTargets(changedFiles(base, head))[target];
+  if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `changed=${changed}\n`);
+  console.log(`${target}: ${changed ? 'changes since' : 'nothing relevant changed since'} ${base || 'the beginning'}`);
 }

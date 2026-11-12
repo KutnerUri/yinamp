@@ -27,6 +27,10 @@ on:
       version:
         type: string
         default: ''
+      commit:
+        description: Exact commit to build (callers triggered by workflow_run must pass the tested commit)
+        type: string
+        default: ''
       full-tests:
         type: boolean
         default: true
@@ -43,6 +47,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit || github.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -77,6 +83,7 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           YINAMP_BUILD_VERSION: ${{ inputs.version }}
+          YINAMP_COMMIT: ${{ inputs.commit || github.sha }}
       - name: Desktop package smoke tests
         if: inputs.full-tests
         run: '"$APP_EXECUTABLE" tests/desktop/package-smoke.mjs "$APP_ARCHIVE"'

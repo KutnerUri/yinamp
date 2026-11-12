@@ -1,10 +1,19 @@
 name: Tests
 
+# Runs on every push to every branch. On main, a successful run starts
+# "Publish desktop" and "Deploy demo" (see their workflow_run triggers).
 on:
-  workflow_call:
+  push:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# A newer push to the same branch supersedes an older test run. On main the newer
+# run's publish compares against the last published commit, so nothing is lost.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   app:

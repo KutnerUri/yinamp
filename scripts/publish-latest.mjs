@@ -12,7 +12,7 @@ function gh(args, optional = false) {
 }
 const files = await readdir(directory);
 const fragments = await Promise.all(files.filter(file => file.endsWith('.update.json')).map(async file => JSON.parse(await readFile(join(directory, file), 'utf8'))));
-const manifest = mergeManifests(fragments, process.env.GITHUB_SHA);
+const manifest = mergeManifests(fragments, process.env.YINAMP_COMMIT || process.env.GITHUB_SHA);
 const { payloads: ignored, ...metadata } = manifest;
 const repo = process.env.GH_REPO;
 if (!repo) throw new Error('GH_REPO is required');

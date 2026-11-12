@@ -1,15 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextDesktopVersion, branchVersion, reserveDesktopVersion } from '../scripts/desktop-version.mjs';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { versionFromHistory, branchVersion, gitVersion } from '../scripts/desktop-version.mjs';
 import { parseVersion, compareVersions, groupBuilds, pageMenu, versionMenu } from '../electron/versions.mjs';
 
-test('main versions advance patches while package.json is a floor for minor/major bumps', () => {
-  assert.equal(nextDesktopVersion('1.2.0', []), '1.2.0');
-  assert.equal(nextDesktopVersion('1.2.0', ['1.2.8', '1.2.10', '1.3.0-feature.12.1']), '1.2.11');
-  assert.equal(nextDesktopVersion('1.3.0', ['1.2.10']), '1.3.0');
-  assert.equal(nextDesktopVersion('2.0.0', ['1.9.99']), '2.0.0');
-  assert.equal(nextDesktopVersion('1.2.0', ['1.3.10']), '1.3.11');
-  assert.throws(() => nextDesktopVersion('1.2.0-alpha', []), /stable/);
+test('package.json sets major.minor and each later commit adds a patch', () => {
+  assert.equal(versionFromHistory('1.2.0', 0), '1.2.0');
+  assert.equal(versionFromHistory('1.2.0', 13), '1.2.13');
+  assert.equal(versionFromHistory('1.2.5', 2), '1.2.7');
+  assert.throws(() => versionFromHistory('1.2.0-alpha', 1), /stable/);
+  assert.throws(() => versionFromHistory('1.2.0', -1), /count/);
 });
 
 test('branch names produce valid, distinct prerelease versions', () => {
@@ -18,20 +21,33 @@ test('branch names produce valid, distinct prerelease versions', () => {
   assert.notEqual(branchVersion('1.2.11', 'feature', 123, 1), branchVersion('1.2.11', 'feature', 123, 2));
 });
 
-test('overlapping main builds cannot reserve the same version', async () => {
-  const used = ['1.2.0'];
-  let collision = false;
-  const version = await reserveDesktopVersion({ base: '1.2.0', branch: 'main', number: 12, attempt: 1,
-    listUsed: async () => [...used], reserve: async candidate => {
-      if (!collision) { collision = true; used.push(candidate); return false; }
-      assert.ok(!used.includes(candidate)); used.push(candidate); return true;
-    } });
-  assert.equal(version, '1.2.2');
-  assert.deepEqual(used, ['1.2.0', '1.2.1', '1.2.2']);
-});
-
-test('a failed reservation fails the build rather than returning a duplicate', async () => {
-  await assert.rejects(reserveDesktopVersion({ base: '1.2.0', branch: 'main', number: 12, attempt: 1, listUsed: async () => [], reserve: async () => false }), /unique/);
+test('versions follow first-parent git history: merges count once, bumps restart the patch', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'yinamp-git-version-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+  const commit = async (message, version) => {
+    if (version) await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'fixture', version }));
+    else await writeFile(join(root, 'notes.txt'), message);
+    git('add', '-A'); git('commit', '-qm', message);
+  };
+  const version = (options = {}) => gitVersion({ cwd: root, ...options });
+  git('init', '-q', '-b', 'main'); git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Fixture');
+  await commit('start', '1.2.0');
+  assert.equal(version(), '1.2.0');
+  await commit('one'); await commit('two');
+  assert.equal(version(), '1.2.2');
+  await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'renamed', version: '1.2.0' }));
+  git('commit', '-qam', 'unrelated package.json edit');
+  assert.equal(version(), '1.2.3', 'only version changes restart the count');
+  git('checkout', '-qb', 'feature'); await commit('f1'); await commit('f2'); await commit('f3');
+  assert.equal(version({ branch: 'feature', number: 7 }), '1.2.6-feature.7.1');
+  git('checkout', '-q', 'main'); git('merge', '-q', '--no-ff', 'feature', '-m', 'merge feature');
+  assert.equal(version(), '1.2.4', 'a merge is one patch');
+  await commit('minor bump', '1.3.0');
+  assert.equal(version(), '1.3.0');
+  await commit('after bump');
+  assert.equal(version(), '1.3.1');
+  assert.equal(version({ commit: 'HEAD~2' }), '1.2.4', 'any past commit keeps its version');
 });
 
 test('version ordering handles numeric patches and semver prerelease precedence', () => {
