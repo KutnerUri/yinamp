@@ -1,0 +1,36 @@
+name: Clean up branch previews
+
+# Deleting a branch on GitHub (the "Delete branch" button, or git push origin --delete)
+# removes that branch's preview releases. Deleting a branch only locally does not.
+# GitHub runs the delete trigger from main's copy of this file.
+on:
+  delete:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch whose previews to remove (it may already be deleted)
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cleanup-previews
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.event_name == 'workflow_dispatch' || github.event.ref_type == 'branch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Delete the branch's preview releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch || github.event.ref }}
+        run: node scripts/cleanup-previews.mjs "$BRANCH"

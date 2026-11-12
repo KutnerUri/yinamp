@@ -13,11 +13,15 @@ export function versionFromHistory(base, commitsSinceBase) {
   return `${parsed.major}.${parsed.minor}.${parsed.patch + commitsSinceBase}`;
 }
 
+// The branch's label inside a preview version: 1.2.20-<slug>.<run>.<attempt>.
+export function branchSlug(branch) {
+  const slug = branch.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/g, '') || 'branch';
+  return /^\d+$/.test(slug) ? `branch-${slug}` : slug;
+}
+
 export function branchVersion(version, branch, number, attempt) {
   if (!parseVersion(version) || !Number.isSafeInteger(number) || number < 1 || !Number.isSafeInteger(attempt) || attempt < 1) throw new Error('Invalid branch build information');
-  let slug = branch.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/g, '') || 'branch';
-  if (/^\d+$/.test(slug)) slug = `branch-${slug}`;
-  return `${version}-${slug}.${number}.${attempt}`;
+  return `${version}-${branchSlug(branch)}.${number}.${attempt}`;
 }
 
 // Main gets a stable version; other branches get a unique prerelease of it.

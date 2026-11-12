@@ -7,6 +7,7 @@
 | **Tests** | `tests.yml` | every push to every branch, or manually |
 | **Publish desktop** | `latest-build.yml` | after Tests passes for a push to `main`, or manually on any branch |
 | **Deploy demo** | `pages.yml` | after Tests passes for a push to `main`, or manually on `main` |
+| **Clean up branch previews** | `cleanup-previews.yml` | a branch is deleted on GitHub, or manually for a named branch |
 | **Windows build check** | `windows-build.yml` | branch pushes that touch Windows packaging, or manually |
 
 Publish desktop and Deploy demo start through GitHub's `workflow_run` trigger, so they reuse the Tests result instead of running the tests again. They check out the exact commit Tests passed (`workflow_run` otherwise runs on the latest `main`). GitHub always uses the copy of a `workflow_run` workflow from `main`, so edits to these two files take effect automatically only after merging; on a branch, test them with a manual run.
@@ -16,6 +17,8 @@ Before pushing workflow changes, run `npm run lint:workflows` (needs `brew insta
 Publish desktop keeps the `latest-build.yml` file name on purpose: installed apps order updates by its run number, and renaming the file would restart the counter.
 
 **Skipping unchanged commits.** On `main`, `scripts/ci-changes.mjs` compares the tested commit with the last published one (the `latest-build` tag for desktop, `version.json` on the live site for the demo). Shared UI, skin, dependency and workflow changes select both; launcher, Electron and desktop packaging changes select desktop; `src/pages-demo.js` and the Pages build script select only the demo. Documentation-only commits are tested but not published. Because the comparison is against the last *published* commit, changes in a commit that was skipped, cancelled or failed are still picked up by the next one. Manual runs always publish.
+
+**Branch previews are removed with their branch.** Deleting a branch on GitHub (the "Delete branch" button after merging, or `git push origin --delete <branch>`) runs `scripts/cleanup-previews.mjs`, which deletes that branch's preview prereleases, their tags, and leftover `desktop-v…` tags from the old versioning. It matches the branch label inside the version (`1.2.20-<branch>.<run>.<attempt>`), and never touches `main` releases or `latest-build`. Deleting a branch only locally does not trigger it; use the manual run with a branch name for that, or for branches deleted before this existed.
 
 **Manual runs.** Actions → Publish desktop → Run workflow. On `main` it publishes normally; on another branch it publishes a prerelease preview and leaves `latest-build` unchanged. Publishing is serialized, and a stale `main` commit is not published.
 
