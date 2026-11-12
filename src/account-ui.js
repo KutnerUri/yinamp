@@ -22,6 +22,7 @@ export function renderAccount(data, root = document) {
   $('#account-player-status').textContent = data.needsRefresh ? data.switching ? 'Switching channel…' : 'Your channel changed. Reload the player under Troubleshooting to finish updating.' : '';
   $('#account-player-status').hidden = !data.needsRefresh;
   $('#account-sign-in').hidden = signedIn;
+  $('#account-passkey-note').hidden = signedIn;
   $('#account-sign-out').hidden = !signedIn;
   $('#account-refresh').hidden = !data.needsRefresh;
   $('#account-switch').hidden = signedOut;
