@@ -42,3 +42,5 @@ win:
 linux:
   target: AppImage
   category: AudioVideo
+  # electron-builder names x64 AppImages "x86_64"; keep the project-wide "x64" name.
+  artifactName: Yinamp-latest-${os}-x64.${ext}

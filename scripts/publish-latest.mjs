@@ -27,7 +27,9 @@ if (isMain && head !== manifest.commit) {
 }
 const installers = files.filter(file => /\.(dmg|exe|AppImage)$/.test(file));
 const requiredInstallers = ['Yinamp-latest-mac-universal.dmg', 'Yinamp-latest-mac-arm64.dmg', 'Yinamp-latest-mac-x64.dmg', 'Yinamp-latest-win-x64.exe', 'Yinamp-latest-linux-x64.AppImage'];
-if (installers.length !== requiredInstallers.length || requiredInstallers.some(file => !installers.includes(file))) throw new Error('Universal Mac, both fallback Mac, Windows and Linux downloads are required');
+const missingInstallers = requiredInstallers.filter(file => !installers.includes(file));
+const unexpectedInstallers = installers.filter(file => !requiredInstallers.includes(file));
+if (missingInstallers.length || unexpectedInstallers.length) throw new Error(`Universal Mac, both fallback Mac, Windows and Linux downloads are required. Missing: ${missingInstallers.join(', ') || 'none'}. Unexpected: ${unexpectedInstallers.join(', ') || 'none'}.`);
 const archives = files.filter(file => file.endsWith('.asar'));
 if (archives.length !== 4) throw new Error('All four application payloads are required');
 for (const [platform, payload] of Object.entries(manifest.payloads)) {
