@@ -1,6 +1,6 @@
 # Desktop updates
 
-The universal macOS DMG supports both Apple Silicon and Intel. Its launcher and progress helper contain both native architectures; each Mac downloads only its matching Electron runtime. Separate architecture DMGs remain available as fallbacks.
+The universal macOS DMG supports both Apple Silicon and Intel. Its launcher and progress helper contain both native architectures; each Mac downloads only its matching Electron runtime.
 
 Yinamp ships a small native launcher with its initial application archive. Electron is a separate download: on first launch the launcher shows a compact progress window with persistent stage markers (download, check, unpack, prepare, open), downloads the required runtime directly from the official Electron GitHub release, verifies its pinned checksum, installs it in the user's profile, and starts the app. Subsequent launches reuse it without a network request. No Node.js installation or administrator access is needed for runtime storage.
 

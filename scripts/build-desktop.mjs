@@ -20,6 +20,7 @@ const target = platform === 'darwin' ? 'mac' : platform === 'win32' ? 'win' : 'l
 for (const slice of arch === 'universal' ? ['arm64', 'x64'] : [arch]) {
   run([`--${target}`, `--${slice}`, '--dir', '--publish', 'never']);
   const compact = await buildCompact({ platform, arch: slice });
-  if (!dirOnly && arch !== 'universal') run(['--prepackaged', compact, `--${target}`, `--${slice}`, '--publish', 'never']);
+  // Macs ship only the universal DMG; single-architecture Mac builds stop at the app bundle.
+  if (!dirOnly && target !== 'mac') run(['--prepackaged', compact, `--${target}`, `--${slice}`, '--publish', 'never']);
 }
 if (arch === 'universal') await buildUniversalMac({ packageDMG: !dirOnly });

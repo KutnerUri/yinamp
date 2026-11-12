@@ -46,11 +46,11 @@ The Linux job uses Xvfb for a virtual display. Chromium's `--no-sandbox` flag is
 
 For a manual fresh-download check, set `YINAMP_TEST_COLD_START=1` when running the compact lifecycle harness. It leaves the runtime cache empty, downloads directly from Electron, and then exercises cached restarts and app updates.
 
-The Mac bundles are then merged into a universal launcher and universal progress helper with `lipo`, signed again, and packaged as `Yinamp-latest-mac-universal.dmg`. Both native Mac runners test that exact DMG, including a fresh Electron download, installation/uninstall, and cached-runtime update/rollback lifecycle checks. Separate architecture DMGs remain available as fallbacks. All build and universal-test jobs must pass before `publish` can update the downloads or update feed. A failed job leaves the previous published build available. On failure, a `failure-<platform>` artifact retains process logs, a test report, updater state and startup diagnostics for seven days. Artifacts exclude the full Chromium profile and session data.
+The Mac bundles are then merged into a universal launcher and universal progress helper with `lipo`, signed again, and packaged as `Yinamp-latest-mac-universal.dmg`. Both native Mac runners test that exact DMG, including a fresh Electron download, installation/uninstall, and cached-runtime update/rollback lifecycle checks. All build and universal-test jobs must pass before `publish` can update the downloads or update feed. A failed job leaves the previous published build available. On failure, a `failure-<platform>` artifact retains process logs, a test report, updater state and startup diagnostics for seven days. Artifacts exclude the full Chromium profile and session data.
 
 ## Installer-to-uninstall test on macOS
 
-Both Mac build jobs run the real DMG-to-uninstall flow. The test uses a disposable home directory, a uniquely named app copy, and the packaged launcher's normal profile/path checks. It seeds the already verified Electron runtime to keep ordinary runs fast, then waits for the real bootstrap and renderer to become healthy.
+Both universal DMG test jobs (Apple Silicon and Intel) run the real DMG-to-uninstall flow. The test uses a disposable home directory, a uniquely named app copy, and the packaged launcher's normal profile/path checks. It seeds the already verified Electron runtime to keep ordinary runs fast, then waits for the real bootstrap and renderer to become healthy.
 
 The isolated Electron process is started with a loopback Node inspector. Through that internal API, the test finds the real menu item and supplies Cancel followed by Uninstall. Only the external confirmation response is stubbed inside that debug process; normal launches expose neither a debug endpoint nor a confirmation bypass. Cancel must leave the running process, installation and profile intact. Confirmed uninstall must exit Electron and let the actual native helper move both the app and profile to Trash, with their contents preserved. The helper reports the exact moved paths. The test verifies its unique markers before removing only those disposable Trash entries; it never enumerates or empties the user's Trash.
 
@@ -58,7 +58,7 @@ Run locally after packaging:
 
 ```sh
 node tests/desktop/install-uninstall.mjs \
-  release/Yinamp-latest-mac-arm64.dmg \
+  release/Yinamp-latest-mac-universal.dmg \
   release/checked-runtime-darwin-arm64 \
   release/mac-arm64/Yinamp.app/Contents/Resources/app.asar
 ```
@@ -87,4 +87,4 @@ This setting applies to your GitHub account and covers the workflow runs you tri
 
 Reference: [GitHub Actions notifications](https://docs.github.com/en/subscriptions-and-notifications/how-tos/managing-github-actions-notifications).
 
-Mac builds default to universal; `--arm64` and `--x64` still build individual fallback packages. Build one universal Mac DMG locally with `npm run build:desktop -- --mac --universal` (`--dir` skips DMG creation). This builds both compact launchers and preserves their separate embedded payloads; Electron is still downloaded only for the running architecture.
+Mac builds default to universal, the only Mac download; `--arm64` and `--x64` build a single-architecture app bundle without a DMG, for testing. Build one universal Mac DMG locally with `npm run build:desktop -- --mac --universal` (`--dir` skips DMG creation). This builds both compact launchers and preserves their separate embedded payloads; Electron is still downloaded only for the running architecture.

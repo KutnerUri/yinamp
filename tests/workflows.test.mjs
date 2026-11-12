@@ -99,7 +99,9 @@ test('Windows check reuses packaging but never duplicates automatic main builds'
   for (const name of ['Native launcher platform tests', 'Desktop package smoke tests', 'Desktop lifecycle tests (startup, update, rollback, recovery)', 'Compact launcher lifecycle tests (cached runtime, update, rollback)']) {
     assert.equal(packaging.jobs.build.steps.find(step => step.name === name).if, 'inputs.full-tests');
   }
-  const installer = packaging.jobs.build.steps.find(step => step.name === 'macOS installer and uninstall integration');
-  assert.equal(installer.if, "inputs.full-tests && runner.os == 'macOS'");
-  assert.match(installer.run, /install-uninstall\.mjs/);
+  // Macs ship only the universal DMG; its install/uninstall test runs on both architectures.
+  assert.ok(packaging.jobs.build.steps.every(step => !/install-uninstall/.test(step.run ?? '')));
+  const universal = (await workflow('latest-build')).jobs['test-universal-mac'];
+  assert.deepEqual(universal.strategy.matrix.os, ['macos-latest', 'macos-15-intel']);
+  assert.ok(universal.steps.some(step => /check-universal-mac\.mjs/.test(step.run ?? '')));
 });

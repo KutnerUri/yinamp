@@ -126,15 +126,6 @@ jobs:
           else
             node tests/desktop/lifecycle.mjs "$LAUNCHER" "$APP_ARCHIVE"
           fi
-      - name: macOS installer and uninstall integration
-        if: inputs.full-tests && runner.os == 'macOS'
-        timeout-minutes: 5
-        env:
-          APP_ARCH: ${{ inputs.arch }}
-          APP_RUNTIME: release/checked-runtime-${{ inputs.runtime }}
-          APP_ARCHIVE: ${{ inputs.archive }}
-          YINAMP_INSTALL_TEST_OUTPUT: test-results/install-${{ inputs.runtime }}
-        run: node tests/desktop/install-uninstall.mjs "release/Yinamp-latest-mac-${APP_ARCH}.dmg" "$APP_RUNTIME" "$APP_ARCHIVE"
       - name: Prepare versioned application update
         if: inputs.full-tests
         run: node scripts/create-update.mjs "$APP_ARCHIVE" "$APP_PLATFORM"
@@ -156,8 +147,8 @@ jobs:
           name: ${{ inputs.artifact-name }}
           if-no-files-found: error
           retention-days: 7
+          # Macs ship only the universal DMG, packaged later from both Mac builds.
           path: |
-            release/*.dmg
             release/*.exe
             release/*.AppImage
             release/*.asar
@@ -177,8 +168,5 @@ jobs:
             test-results/compact-${{ inputs.runtime }}/*.log
             test-results/compact-${{ inputs.runtime }}/*.json
             test-results/compact-${{ inputs.runtime }}/*.jsonl
-            test-results/install-${{ inputs.runtime }}/*.log
-            test-results/install-${{ inputs.runtime }}/*.json
-            test-results/install-${{ inputs.runtime }}/*.jsonl
             release/builder-debug.yml
             release/builder-effective-config.yaml
