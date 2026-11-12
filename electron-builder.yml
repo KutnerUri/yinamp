@@ -26,15 +26,16 @@ mac:
 dmg:
   icon: build/icon.icns
   background: build/dmg/background.jpg
+  # Window size and icon centers must match scripts/render-dmg-guide.swift.
   window:
-    width: 900
-    height: 700
-  iconSize: 64
+    width: 800
+    height: 670
+  iconSize: 88
   contents:
-    - x: 340
-      y: 65
-    - x: 560
-      y: 65
+    - x: 210
+      y: 114
+    - x: 590
+      y: 114
       type: link
       path: /Applications
 win:
@@ -42,3 +43,5 @@ win:
 linux:
   target: AppImage
   category: AudioVideo
+  # electron-builder names x64 AppImages "x86_64"; keep the project-wide "x64" name.
+  artifactName: Yinamp-latest-${os}-x64.${ext}

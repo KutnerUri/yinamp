@@ -1,4 +1,4 @@
-import { stampAppVersion } from '../app-version.mjs';
+import { stampAppVersion, version } from '../app-version.mjs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
@@ -18,10 +18,12 @@ html = html.replace('<body>', `<body>
     <p><strong>✦ LIVE BROWSER DEMO</strong> · Get the desktop app for your library &amp; live search.</p>
     <div class="demo-downloads">
       <a id="desktop-download" class="download-button" href="https://github.com/KutnerUri/yinamp/releases/tag/latest-build">Download desktop app ↗</a>
-      <span id="mac-downloads" hidden>Download for macOS: <a href="https://github.com/KutnerUri/yinamp/releases/download/latest-build/Yinamp-latest-mac-arm64.dmg">Apple Silicon</a> · <a href="https://github.com/KutnerUri/yinamp/releases/download/latest-build/Yinamp-latest-mac-x64.dmg">Intel</a></span>
+      <span id="mac-downloads" hidden><a href="https://github.com/KutnerUri/yinamp/releases/download/latest-build/Yinamp-latest-mac-universal.dmg">Download for macOS</a> (Apple Silicon and Intel)</span>
       <a class="all-downloads" href="https://github.com/KutnerUri/yinamp/releases/tag/latest-build">All downloads ↗</a>
     </div>
   </aside>`);
 await writeFile(new URL('index.html', output), html);
 await writeFile(new URL('.nojekyll', output), '');
+// CI reads this from the live site to decide whether the next commit needs a deployment.
+await writeFile(new URL('version.json', output), JSON.stringify({ version, commit: process.env.YINAMP_COMMIT || process.env.GITHUB_SHA || 'local' }) + '\n');
 console.log('GitHub Pages demo built in dist/ (relative paths support any repository name).');

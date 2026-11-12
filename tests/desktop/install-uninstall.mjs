@@ -11,10 +11,12 @@ import { promisify } from 'node:util';
 import { once } from 'node:events';
 import { createRequire } from 'node:module';
 import { UpdateStore } from '../../electron/update-store.mjs';
+import { requireMacOSGUI } from './macos-gui.mjs';
 
 if (process.platform !== 'darwin') throw new Error('This test covers the macOS installer and uninstaller');
 const [dmgArg, runtimeArg, archiveArg] = process.argv.slice(2);
 if (!dmgArg || !runtimeArg || !archiveArg) throw new Error('Supply <DMG> <verified-runtime-directory> <app.asar>');
+await requireMacOSGUI();
 const [dmg, runtime, archive] = [dmgArg, runtimeArg, archiveArg].map(value => resolve(value));
 const output = resolve(process.env.YINAMP_INSTALL_TEST_OUTPUT || await mkdtemp(join(tmpdir(), 'yinamp-install-report-')));
 await mkdir(output, { recursive: true });
@@ -136,10 +138,11 @@ try {
     for (const window of electron.BrowserWindow.getAllWindows()) window.hide();
     const menu = electron.Menu.getApplicationMenu().items.find(item => item.label === 'Yinamp').submenu;
     globalThis.__installTestMenuItem = menu.items.find(item => item.label === 'Uninstall Yinamp…');
-    return { available: Boolean(globalThis.__installTestMenuItem?.enabled), profile: electron.app.getPath('userData'), version: electron.app.getVersion() };
+    return { available: Boolean(globalThis.__installTestMenuItem?.enabled), profile: electron.app.getPath('userData'), version: electron.app.getVersion(), arch: process.arch };
   })()`);
   assert.equal(status.profile, profile);
   assert.equal(status.version, bundled.version);
+  assert.equal(status.arch, process.arch, 'The installed launcher must select the native Electron architecture');
   assert.equal(status.available, true);
   assert.ok(await exists(join(profile, 'launcher')));
   await pass('installed launcher bootstrapped Electron and confirmed renderer health');

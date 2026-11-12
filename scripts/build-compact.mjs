@@ -14,6 +14,20 @@ function run(command, args, options = {}) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} failed (${result.status})`);
 }
+export async function prepareCheckedRuntime({ platform, arch, version }) {
+  const output = resolve('release');
+  const key = `${platform}-${arch}`;
+  const { archive: runtimeArchive, runtime } = await officialElectron({ version, platform, arch });
+  console.log(`Using official Electron ${version} (${key}).`);
+  // This small descriptor is part of the app manifest, never a hosted runtime release.
+  await writeFile(join(output, `RUNTIME-${key}.json`), JSON.stringify(runtime, null, 2) + '\n');
+  // Check the exact distributed ZIP with the production extractor, including local macOS branding and symlinks.
+  const checkedRuntime = join(output, `checked-runtime-${key}`);
+  await rm(checkedRuntime, { recursive: true, force: true });
+  run('go', ['test', '-count=1', '-run', '^TestReleaseRuntimeExtraction$', '.'], { cwd: 'launcher', env: { ...process.env, YINAMP_TEST_RUNTIME_ZIP: runtimeArchive, YINAMP_TEST_RUNTIME_OUTPUT: checkedRuntime } });
+  await writeFile(join(checkedRuntime, 'runtime.json'), JSON.stringify(runtime));
+  return runtime;
+}
 export async function buildCompact({ platform, arch }) {
   const key = `${platform}-${arch}`;
   const metadata = JSON.parse(await readFile('build-info.json', 'utf8'));
@@ -23,15 +37,7 @@ export async function buildCompact({ platform, arch }) {
   const archive = join(original, resources, 'app.asar');
   const temporary = await mkdtemp(join(tmpdir(), 'yinamp-compact-build-'));
   try {
-    const { archive: runtimeArchive, runtime } = await officialElectron({ version: metadata.electron, platform, arch });
-    console.log(`Using official Electron ${metadata.electron} (${key}).`);
-    // This small descriptor is part of the app manifest, never a hosted runtime release.
-    await writeFile(join(output, `RUNTIME-${key}.json`), JSON.stringify(runtime, null, 2) + '\n');
-    // Check the exact distributed ZIP with the production extractor, including local macOS branding and symlinks.
-    const checkedRuntime = join(output, `checked-runtime-${key}`);
-    await rm(checkedRuntime, { recursive: true, force: true });
-    run('go', ['test', '-count=1', '-run', '^TestReleaseRuntimeExtraction$', '.'], { cwd: 'launcher', env: { ...process.env, YINAMP_TEST_RUNTIME_ZIP: runtimeArchive, YINAMP_TEST_RUNTIME_OUTPUT: checkedRuntime } });
-    await writeFile(join(checkedRuntime, 'runtime.json'), JSON.stringify(runtime));
+    const runtime = await prepareCheckedRuntime({ platform, arch, version: metadata.electron });
     const app = join(temporary, 'application');
     asar.extractAll(archive, app);
     await writeFile(join(app, 'build-info.json'), JSON.stringify({ ...metadata, runtime }, null, 2) + '\n');

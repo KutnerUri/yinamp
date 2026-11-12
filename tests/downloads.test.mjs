@@ -8,10 +8,10 @@ test('downloads target supported Windows and Linux machines', () => {
   assert.match(desktopDownload({ platform: 'Windows', architecture: 'x86', bitness: '64' }).href, /win-x64.exe$/);
 });
 
-test('MacIntel is ambiguous until explicit architecture hints arrive', () => {
-  assert.equal(desktopDownload({ platform: 'MacIntel' }).macChoices, true);
-  assert.match(desktopDownload({ platform: 'macOS', architecture: 'arm', bitness: '64' }).href, /mac-arm64.dmg$/);
-  assert.match(desktopDownload({ platform: 'macOS', architecture: 'x86', bitness: '64' }).href, /mac-x64.dmg$/);
+test('all Mac architectures use the universal download', () => {
+  assert.match(desktopDownload({ platform: 'MacIntel' }).href, /mac-universal.dmg$/);
+  assert.match(desktopDownload({ platform: 'macOS', architecture: 'arm', bitness: '64' }).href, /mac-universal.dmg$/);
+  assert.match(desktopDownload({ platform: 'macOS', architecture: 'x86', bitness: '64' }).href, /mac-universal.dmg$/);
 });
 
 test('mobile, ARM Linux/Windows, 32-bit and unknown devices get the full list', () => {
@@ -20,11 +20,11 @@ test('mobile, ARM Linux/Windows, 32-bit and unknown devices get the full list', 
   }
 });
 
-test('denied architecture hints preserve Mac choices and the release fallback', async () => {
+test('denied architecture hints preserve the universal Mac download', async () => {
   const link = {}, mac = {};
   const document = { querySelector: selector => selector === '#desktop-download' ? link : mac };
   await setupDesktopDownload({ platform: 'MacIntel', userAgent: '', userAgentData: { getHighEntropyValues: async () => { throw new Error('denied'); } } }, document);
-  assert.equal(link.hidden, true);
-  assert.equal(mac.hidden, false);
-  assert.match(link.href, /tag\/latest-build$/);
+  assert.equal(link.hidden, false);
+  assert.equal(mac.hidden, true);
+  assert.match(link.href, /mac-universal.dmg$/);
 });

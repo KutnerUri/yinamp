@@ -12,7 +12,7 @@ function gh(args, optional = false) {
 }
 const files = await readdir(directory);
 const fragments = await Promise.all(files.filter(file => file.endsWith('.update.json')).map(async file => JSON.parse(await readFile(join(directory, file), 'utf8'))));
-const manifest = mergeManifests(fragments, process.env.GITHUB_SHA);
+const manifest = mergeManifests(fragments, process.env.YINAMP_COMMIT || process.env.GITHUB_SHA);
 const { payloads: ignored, ...metadata } = manifest;
 const repo = process.env.GH_REPO;
 if (!repo) throw new Error('GH_REPO is required');
@@ -26,7 +26,10 @@ if (isMain && head !== manifest.commit) {
   process.exit(0);
 }
 const installers = files.filter(file => /\.(dmg|exe|AppImage)$/.test(file));
-if (installers.length !== 4) throw new Error('All four desktop downloads are required');
+const requiredInstallers = ['Yinamp-latest-mac-universal.dmg', 'Yinamp-latest-win-x64.exe', 'Yinamp-latest-linux-x64.AppImage'];
+const missingInstallers = requiredInstallers.filter(file => !installers.includes(file));
+const unexpectedInstallers = installers.filter(file => !requiredInstallers.includes(file));
+if (missingInstallers.length || unexpectedInstallers.length) throw new Error(`Universal Mac, Windows and Linux downloads are required. Missing: ${missingInstallers.join(', ') || 'none'}. Unexpected: ${unexpectedInstallers.join(', ') || 'none'}.`);
 const archives = files.filter(file => file.endsWith('.asar'));
 if (archives.length !== 4) throw new Error('All four application payloads are required');
 for (const [platform, payload] of Object.entries(manifest.payloads)) {
@@ -40,7 +43,7 @@ await writeFile(join(directory, 'SHA256SUMS.txt'), (await Promise.all(checksumFi
 await writeFile(join(directory, 'UPDATE.json'), JSON.stringify(manifest, null, 2) + '\n');
 await writeFile(join(directory, 'BUILD-INFO.json'), JSON.stringify({ ...metadata, workflow: `${process.env.GITHUB_SERVER_URL}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}` }, null, 2) + '\n');
 const notes = join(directory, 'release-notes.md');
-await writeFile(notes, `Yinamp ${manifest.version} · Build ${manifest.number}.${manifest.attempt}\n\nCommit: ${manifest.commit}\n\nDownload the DMG for your Mac (arm64 for Apple Silicon, x64 for Intel), portable EXE for Windows, or AppImage for Linux. No Node.js installation needed. These builds are unsigned; macOS and Windows may ask you to allow the app.\n\nApplication updates download silently and activate on the next launch. Yinamp → Updates: turn automatic updates on or off, or select a specific version. Electron runtimes download automatically when needed and are cached between releases. The first launch requires an internet connection.\n\nChecksums and exact build information are included. The ASAR files are application updates used by the launcher; use the DMG, EXE or AppImage for installation.\n`);
+await writeFile(notes, `Yinamp ${manifest.version} · Build ${manifest.number}.${manifest.attempt}\n\nCommit: ${manifest.commit}\n\nDownload the universal DMG for any supported Mac (Apple Silicon or Intel), portable EXE for Windows, or AppImage for Linux. No Node.js installation needed. These builds are unsigned; macOS and Windows may ask you to allow the app.\n\nApplication updates download silently and activate on the next launch. Yinamp → Updates: turn automatic updates on or off, or select a specific version. Electron runtimes download automatically when needed and are cached between releases. The first launch requires an internet connection.\n\nChecksums and exact build information are included. The ASAR files are application updates used by the launcher; use the DMG, EXE or AppImage for installation.\n`);
 const assets = [...installers, ...archives, 'SHA256SUMS.txt', 'BUILD-INFO.json', 'UPDATE.json'].map(file => join(directory, file));
 const existing = gh(['release', 'view', manifest.id, '--json', 'isDraft'], true);
 if (!existing) {
@@ -64,6 +67,9 @@ if (!latest) {
   gh(['release', 'upload', 'latest-build', ...rollingAssets, '--clobber']);
   // Publish the pointer last. It refers exclusively to the completed immutable release above.
   gh(['release', 'upload', 'latest-build', join(directory, 'UPDATE.json'), '--clobber']);
+  // Uploads only add or replace files: remove downloads this build no longer ships (retired or renamed installers).
+  const stale = JSON.parse(gh(['release', 'view', 'latest-build', '--json', 'assets'])).assets.map(asset => asset.name).filter(name => /\.(dmg|exe|AppImage)$/.test(name) && !requiredInstallers.includes(name));
+  for (const name of stale) gh(['release', 'delete-asset', 'latest-build', name, '--yes']);
   gh(['api', '--method', 'PATCH', `repos/${repo}/git/refs/tags/latest-build`, '-f', `sha=${manifest.commit}`, '-F', 'force=true']);
   gh(['release', 'edit', 'latest-build', '--title', 'Latest build', '--prerelease', '--latest=false', '--notes-file', notes]);
 }

@@ -1,47 +1,80 @@
 name: Deploy demo
 
+# Automatic: after "Tests" passes for a push to main, when site files changed since the
+# commit that is live now. Manual: Run workflow (deploys only from the default branch).
 on:
   workflow_run:
     workflows: [Tests]
     types: [completed]
-    branches: [main, master]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pages-${{ github.event.workflow_run.head_branch }}
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # workflow_run runs in main's context; deploy the exact commit that passed the tests.
+  YINAMP_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+  YINAMP_BRANCH: main
 
 jobs:
   build:
-    # workflow_run can access deployment credentials. Only build a successful
-    # test run from this repository's default branch, never a PR or fork.
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event != 'pull_request' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      github.event.workflow_run.head_branch == github.event.repository.default_branch
+    # Deployment is limited to this repository's default branch.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      changed: ${{ steps.select.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ env.YINAMP_COMMIT }}
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
+      - name: Compare with the deployed commit
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Manual run: deploying."
+          else
+            site=$(gh api "repos/$GH_REPO/pages" --jq .html_url 2>/dev/null || true)
+            base=$( [ -n "$site" ] && curl -fsSL "${site%/}/version.json" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)
+            node scripts/ci-changes.mjs demo "$base" "$YINAMP_COMMIT"
+          fi
       - uses: pnpm/action-setup@v6
+        if: steps.select.outputs.changed == 'true'
         with:
           version: '11.15.1'
-      - run: pnpm install --frozen-lockfile
+      - if: steps.select.outputs.changed == 'true'
+        run: pnpm install --frozen-lockfile
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-      - run: npm run build:pages
+      - name: Build demo with the git-derived version
+        if: steps.select.outputs.changed == 'true'
+        run: |
+          YINAMP_BUILD_VERSION=$(node scripts/desktop-version.mjs)
+          export YINAMP_BUILD_VERSION
+          npm run build:pages
       - uses: actions/upload-pages-artifact@v5
+        if: steps.select.outputs.changed == 'true'
         with:
           path: dist
+
   deploy:
     needs: build
+    if: needs.build.outputs.changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       pages: write

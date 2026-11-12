@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { digest, RELEASES } from '../electron/update-store.mjs';
 
-async function fixture(t, badRuntime = false, { branch = 'main', version = '1.2.0' } = {}) {
+async function fixture(t, badRuntime = false, { branch = 'main', version = '1.2.0', latestAssets = null } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'yinamp-publish-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const bin = join(root, 'bin'); await mkdir(bin);
@@ -17,14 +17,15 @@ async function fixture(t, badRuntime = false, { branch = 'main', version = '1.2.
     await writeFile(join(root, `Yinamp-${platform}.asar`), bytes);
     await writeFile(join(root, `${platform}.update.json`), JSON.stringify({ ...metadata, payloads: { [platform]: { size: bytes.length, sha256: digest(bytes), url: `${RELEASES}/download/${metadata.id}/Yinamp-${platform}.asar`, runtime } } }));
   }
-  for (const name of ['mac-arm64.dmg', 'mac-x64.dmg', 'win-x64.exe', 'linux-x64.AppImage']) await writeFile(join(root, `Yinamp-latest-${name}`), 'installer');
+  for (const name of ['mac-universal.dmg', 'win-x64.exe', 'linux-x64.AppImage']) await writeFile(join(root, `Yinamp-latest-${name}`), 'installer');
   await writeFile(join(bin, 'gh'), `#!/usr/bin/env node
 const fs=require('node:fs');const path=require('node:path');const args=process.argv.slice(2);const root=process.env.PUBLISH_FIXTURE;
 fs.appendFileSync(path.join(root,'commands.jsonl'),JSON.stringify(args)+'\\n');
 if(args[0]==='api'&&args[1].includes('/commits/main')){console.log('a'.repeat(40));process.exit(0)}
+if(args[0]==='release'&&args[1]==='view'&&args[2]==='latest-build'&&process.env.LATEST_ASSETS){console.log(args.includes('--json')?JSON.stringify({assets:JSON.parse(process.env.LATEST_ASSETS).map(name=>({name}))}):'latest-build');process.exit(0)}
 if(args[0]==='release'&&args[1]==='view')process.exit(1);
 `, { mode: 0o755 });
-  const result = spawnSync(process.execPath, [resolve('scripts/publish-latest.mjs'), root], { encoding: 'utf8', env: { ...process.env, GH_TOKEN: 'fixture-only', GH_REPO: 'KutnerUri/yinamp', GITHUB_SHA: metadata.commit, GITHUB_REF: `refs/heads/${branch}`, PUBLISH_FIXTURE: root, PATH: `${bin}${delimiter}${process.env.PATH}` } });
+  const result = spawnSync(process.execPath, [resolve('scripts/publish-latest.mjs'), root], { encoding: 'utf8', env: { ...process.env, GH_TOKEN: 'fixture-only', GH_REPO: 'KutnerUri/yinamp', GITHUB_SHA: metadata.commit, GITHUB_REF: `refs/heads/${branch}`, PUBLISH_FIXTURE: root, ...(latestAssets ? { LATEST_ASSETS: JSON.stringify(latestAssets) } : {}), PATH: `${bin}${delimiter}${process.env.PATH}` } });
   const log = await readFile(join(root, 'commands.jsonl'), 'utf8').catch(() => '');
   return { result, commands: log.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) };
 }
@@ -35,6 +36,7 @@ test('app publishing needs no hosted Electron archives or runtime releases', nat
   const appCreate = commands.findIndex(args => args[1] === 'create' && args[2] === 'build-123-1');
   const feedCreate = commands.findIndex(args => args[1] === 'create' && args[2] === 'latest-build');
   assert.ok(appCreate >= 0 && appCreate < feedCreate);
+  assert.ok(commands[appCreate].some(arg => arg.endsWith('Yinamp-latest-mac-universal.dmg')));
   assert.equal(commands.some(args => args.some(arg => arg.startsWith('runtime-') || arg.endsWith('.zip'))), false);
 });
 test('publishing rejects nonofficial runtime URLs before any release mutation', nativeShell, async t => {
@@ -63,4 +65,14 @@ test('a branch cannot accidentally publish a stable version', nativeShell, async
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /branch builds need prerelease/);
   assert.equal(commands.some(args => ['create', 'edit', 'upload'].includes(args[1])), false);
+});
+
+test('refreshing latest-build removes installers this build no longer ships', nativeShell, async t => {
+  const latestAssets = ['Yinamp-latest-mac-universal.dmg', 'Yinamp-latest-mac-arm64.dmg', 'Yinamp-latest-mac-x64.dmg', 'Yinamp-latest-linux-x86_64.AppImage', 'Yinamp-latest-win-x64.exe', 'UPDATE.json', 'SHA256SUMS.txt'];
+  const { result, commands } = await fixture(t, false, { latestAssets });
+  assert.equal(result.status, 0, result.stderr);
+  const deleted = commands.filter(args => args[1] === 'delete-asset').map(args => { assert.equal(args[2], 'latest-build'); return args[3]; });
+  assert.deepEqual(deleted, ['Yinamp-latest-mac-arm64.dmg', 'Yinamp-latest-mac-x64.dmg', 'Yinamp-latest-linux-x86_64.AppImage']);
+  const pointer = commands.findIndex(args => args[1] === 'upload' && args.some(arg => arg.endsWith('UPDATE.json')) && args[2] === 'latest-build');
+  assert.ok(pointer >= 0 && pointer < commands.findIndex(args => args[1] === 'delete-asset'), 'new downloads are in place before old ones go');
 });

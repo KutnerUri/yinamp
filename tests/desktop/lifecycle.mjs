@@ -7,9 +7,11 @@ import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { UpdateStore, RELEASES, digest } from '../../electron/update-store.mjs';
+import { requireMacOSGUI } from './macos-gui.mjs';
 
 const [executable, archive] = process.argv.slice(2).map(value => resolve(value));
 if (!executable || !archive) throw new Error('Supply the packaged executable and archive');
+await requireMacOSGUI();
 const directory = process.env.YINAMP_UPDATE_TEST_OUTPUT ? resolve(process.env.YINAMP_UPDATE_TEST_OUTPUT) : await mkdtemp(join(tmpdir(), 'yinamp-update-roundtrip-'));
 await mkdir(directory, { recursive: true });
 const userData = await mkdtemp(join(directory, 'profile-'));
