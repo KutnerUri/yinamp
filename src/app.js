@@ -37,7 +37,7 @@ let playlistImport;
 // Playlist feedback: a removed track's undo slot, a flashing row, and a note on the track count.
 // Fade timings follow the golden ratio: φ⁻² s in, φ⁻¹ s out.
 const ROW_FLASH_MS = 1600, UNDO_MS = 5000, SUMMARY_NOTE_MS = 6000, GHOST_IN_MS = 382, GHOST_OUT_MS = 618, ENTRANCE_ROWS = 10, ENTRANCE_STEP_MS = 38;
-let removedTracks = [], ghostsFor = null, flashingRow = null, summaryNote = null, queueEntrance = null, clearedQueue = null, loadingPlaylist = null;
+let removedTracks = [], ghostsFor = null, flashingRow = null, summaryNote = null, queueEntrance = null, clearedQueue = null, loadingPlaylist = null, streamingList = null;
 let playbackRequested = false;
 let playIntentPending = false;
 let skipTimer;
@@ -420,7 +420,7 @@ function renderPlaylist() {
   }
   const total = state.playlist.reduce((sum, track) => sum + track.duration, 0);
   const unavailableCount = state.playlist.filter(track => track.unavailable).length;
-  $('#playlist-summary').textContent = `${state.playlist.length} ${state.playlist.length === 1 ? 'TRACK' : 'TRACKS'}${unavailableCount ? ` · ${unavailableCount} UNAVAILABLE` : total ? ` · ${formatTime(total)}` : ''}${summaryNote ? ` · ${summaryNote.text}` : ''}`;
+  $('#playlist-summary').textContent = `${state.playlist.length} ${state.playlist.length === 1 ? 'TRACK' : 'TRACKS'}${unavailableCount ? ` · ${unavailableCount} UNAVAILABLE` : total ? ` · ${formatTime(total)}` : ''}${streamingList && streamingList === state.playlist ? ' · LOADING' : ''}${summaryNote ? ` · ${summaryNote.text}` : ''}`;
   $('#playlist-summary').title = summaryNote?.title ?? '';
   $('#retry-unavailable').hidden = !unavailableCount;
   $('#clear-playlist').hidden = !state.playlist.length;
@@ -781,51 +781,96 @@ async function fetchPlaylistInfo(id) {
     return response.ok ? await response.json() : null;
   } catch { return null; } // The playlist still plays without its name.
 }
+// Opening a playlist resolves as soon as the queue is in place: on the desktop that is the first page
+// of songs, and the rest stream in behind it (`completion` settles once the whole list has arrived).
 async function openOnlinePlaylist(value, autoplay = false, options = {}) {
   const id = value.id ?? value.playlistId;
   // Show the incoming playlist at once; the current queue keeps playing underneath until its songs arrive.
   // A pasted link has no name or cover yet, so ask for them alongside the songs rather than after.
   const loading = loadingPlaylist = { id, title: value.title || '', thumbnail: value.thumbnail || '' };
-  let info = null;
-  const infoRequest = value.title ? null : fetchPlaylistInfo(id).then(data => {
-    info = data;
+  const stream = { value, autoplay, options, loading, info: null, infoRequest: null, list: null, seen: new Set(), overflow: 0 };
+  stream.infoRequest = value.title ? null : fetchPlaylistInfo(id).then(data => {
+    stream.info = data;
     if (data && loadingPlaylist === loading) { loading.title ||= data.title; loading.thumbnail ||= data.thumbnail ?? ''; renderPlaylist(); }
     return data;
   });
   renderPlaylist();
-  try { return await loadOnlinePlaylist(value, autoplay, options, loading, () => info, infoRequest); }
-  finally { if (loadingPlaylist === loading) { loadingPlaylist = null; renderPlaylist(); } }
+  let markApplied;
+  const applied = new Promise(resolve => { markApplied = resolve; });
+  const requestId = crypto.randomUUID();
+  const unsubscribe = window.yinampDesktop?.onPlaylistProgress?.(data => {
+    if (data?.requestId === requestId && Array.isArray(data.tracks) && addStreamedTracks(stream, data.tracks)) markApplied();
+  });
+  const completion = (async () => {
+    try {
+      const source = await readPlaylistSource(value, options, requestId);
+      if (options.signal?.aborted && !stream.list) throw new DOMException('Playlist import cancelled', 'AbortError');
+      stream.sourceTitle = source.title;
+      const tracks = source.tracks ?? source.ids.map(trackId => ({ id: trackId }));
+      if (!addStreamedTracks(stream, tracks) && !stream.list) throw new Error('No available songs were found. Your previous queue is unchanged.');
+      markApplied();
+      return { partial: source.partial || stream.overflow > 0, count: stream.list?.length ?? 0, list: stream.list };
+    } finally {
+      unsubscribe?.();
+      if (loadingPlaylist === loading) loadingPlaylist = null;
+      if (streamingList === stream.list) streamingList = null;
+      renderPlaylist();
+    }
+  })();
+  completion.catch(() => {});
+  // The queue is in place after the first page (or the whole list); a failure before that rejects.
+  await Promise.race([applied, completion]);
+  return { completion, count: stream.list.length, list: stream.list };
 }
-async function loadOnlinePlaylist(value, autoplay, options, loading, knownInfo, infoRequest) {
-  const source = window.yinampDesktop?.library
-    ? await window.yinampDesktop.library({ action: 'playlist', playlist: { id: value.id ?? value.playlistId, seed: value.seed ?? value.video?.id ?? null, source: value.source ?? 'youtube' } })
-    : value.source === 'music' ? await (async () => { const response = await fetch(`/api/playlist?id=${encodeURIComponent(value.id)}&source=music`, { signal: options.signal }); const data = await response.json(); if (!response.ok) throw new Error(data.error); return data; })()
-    : await readPlaylistWithFallback(value.id ?? value.playlistId, { container: $('#playlist-preview'), ...options });
-  if (options.signal?.aborted) throw new DOMException('Playlist import cancelled', 'AbortError');
-  const result = appendPlaylistTracks([], source.ids ?? source.tracks.map(track => track.id));
-  if (!result.added.length) throw new Error('No available songs were found. Your previous queue is unchanged.');
-  const metadata = new Map((source.tracks ?? []).map(track => [track.id, track]));
-  for (const track of result.added) {
-    const data = metadata.get(track.id);
-    if (typeof data?.title === 'string') track.title = data.title.slice(0, 300);
-    for (const field of ['artist', 'album']) if (typeof data?.[field] === 'string' && data[field].trim()) track[field] = data[field].trim().slice(0, 300);
-    if (Number.isFinite(data?.duration)) track.duration = clamp(data.duration, 0, 604800);
-    const versions = cleanVersions(data?.versions);
-    if (Object.keys(versions).length) track.versions = versions;
+function readPlaylistSource(value, options, requestId) {
+  if (window.yinampDesktop?.library) return window.yinampDesktop.library({ action: 'playlist', requestId, playlist: { id: value.id ?? value.playlistId, seed: value.seed ?? value.video?.id ?? null, source: value.source ?? 'youtube' } });
+  if (value.source === 'music') return (async () => { const response = await fetch(`/api/playlist?id=${encodeURIComponent(value.id ?? value.playlistId)}&source=music`, { signal: options.signal }); const data = await response.json(); if (!response.ok) throw new Error(data.error); return data; })();
+  return readPlaylistWithFallback(value.id ?? value.playlistId, { container: $('#playlist-preview'), ...options });
+}
+function trackFromSource(data) {
+  const track = { id: data.id, title: `YouTube — ${data.id}`, duration: 0, start: 0 };
+  if (typeof data.title === 'string') track.title = data.title.slice(0, 300);
+  for (const field of ['artist', 'album']) if (typeof data[field] === 'string' && data[field].trim()) track[field] = data[field].trim().slice(0, 300);
+  if (Number.isFinite(data.duration)) track.duration = clamp(data.duration, 0, 604800);
+  const versions = cleanVersions(data.versions);
+  if (Object.keys(versions).length) track.versions = versions;
+  return track;
+}
+// Add a batch of streamed songs. The first batch replaces the queue; later ones append songs not seen
+// before, so anything the user removed meanwhile stays removed. Returns true once the queue is in place.
+function addStreamedTracks(stream, tracks) {
+  if (stream.list ? state.playlist !== stream.list : stream.options.signal?.aborted) return Boolean(stream.list); // replaced or cancelled
+  const fresh = [];
+  for (const data of tracks) {
+    if (!/^[\w-]{11}$/.test(data?.id ?? '') || stream.seen.has(data.id)) continue;
+    stream.seen.add(data.id);
+    if ((stream.list?.length ?? 0) + fresh.length >= 500) { stream.overflow++; continue; }
+    fresh.push(trackFromSource(data));
+  }
+  if (!fresh.length) return Boolean(stream.list);
+  const untitled = fresh.filter(track => track.title === `YouTube — ${track.id}`);
+  if (stream.list) {
+    for (const track of fresh) if (!stream.list.some(existing => existing.id === track.id)) stream.list.push(track);
+    renderPlaylist(); persist();
+    void fillTrackTitles(untitled);
+    return true;
   }
   // Name and cover: the card's, the listing's, or YouTube's answer; until that arrives, the first video's thumbnail.
-  const info = knownInfo(), title = value.title || source.title || info?.title;
+  const { value, loading, info, infoRequest } = stream;
+  const title = value.title || stream.sourceTitle || info?.title;
   if (loadingPlaylist === loading) loadingPlaylist = null;
-  stop(); state.activePlaylist = normalizePlaylistIdentity({ ...value, title, thumbnail: value.thumbnail || info?.thumbnail || `https://i.ytimg.com/vi/${result.added[0].id}/hqdefault.jpg` }); state.playlist = result.added; ui.selectedId.value = result.added[0].id;
+  stop();
+  state.activePlaylist = normalizePlaylistIdentity({ ...value, title, thumbnail: value.thumbnail || info?.thumbnail || `https://i.ytimg.com/vi/${fresh[0].id}/hqdefault.jpg` });
+  state.playlist = stream.list = streamingList = fresh; ui.selectedId.value = fresh[0].id;
   const id = state.activePlaylist?.id;
   if (!title && infoRequest) void infoRequest.then(data => {
-    if (!data || state.activePlaylist?.id !== id) return;
+    if (!data || state.activePlaylist?.id !== id || state.activePlaylist.title === data.title) return;
     state.activePlaylist = normalizePlaylistIdentity({ ...state.activePlaylist, title: data.title, thumbnail: data.thumbnail ?? state.activePlaylist.thumbnail });
     renderPlaylist(); persist();
   });
-  queueEntrance = performance.now(); renderPlaylist(); selectTrack(ui.selectedId.value, autoplay); persist();
-  void fillTrackTitles(result.added.filter(track => !metadata.has(track.id)));
-  return { partial: source.partial || result.overflow > 0, count: result.added.length };
+  queueEntrance = performance.now(); renderPlaylist(); selectTrack(ui.selectedId.value, stream.autoplay); persist();
+  void fillTrackTitles(untitled);
+  return true;
 }
 
 async function replaceQueueFrom(playlist, button) {
@@ -837,7 +882,10 @@ async function replaceQueueFrom(playlist, button) {
     const result = await openOnlinePlaylist(playlist, false, { signal: controller.signal, onFallback: () => setAddNote('Reading the public playlist listing…') });
     if (controller.signal.aborted) return;
     playlistImport = null; closeAdd();
-    flashSummary(result.partial ? { text: 'PARTIAL', title: 'Only part of this playlist could be loaded.' } : null);
+    // The rest may still be streaming in; report a partial list once it has all arrived.
+    const current = () => state.playlist === result.list;
+    result.completion.then(done => { if (current()) flashSummary(done.partial ? { text: 'PARTIAL', title: 'Only part of this playlist could be loaded.' } : null); },
+      () => { if (current()) flashSummary({ text: 'PARTIAL', title: 'The rest of this playlist could not be loaded.' }); });
   } catch (error) {
     if (error.name !== 'AbortError' && !controller.signal.aborted) showAddError(error.message);
   } finally {

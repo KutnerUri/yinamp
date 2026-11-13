@@ -41,7 +41,7 @@ export function createMusicLibrary({ onIdentity = () => {}, onMismatch = () => {
     return probe;
   } });
   function invalidate() { generation++; cache.clear(); searchWindow.dispose(); active?.webContents?.stop(); }
-  async function page(url, script, key) {
+  async function page(url, script, key, onProgress = () => {}) {
     const target = new URL(url);
     const version = generation;
     const task = async () => {
@@ -49,9 +49,13 @@ export function createMusicLibrary({ onIdentity = () => {}, onMismatch = () => {
       const cached = cache.get(key);
       if (cached) return cached;
       const options = { partition: YOUTUBE_PARTITION, nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false };
-      const probe = ['mine', 'mixes', 'home'].includes(key)
-        ? new BrowserWindow({ show: false, width: 1100, height: 850, webPreferences: options })
+      // Playlists load their next page when the end of the list is drawn on screen, which an unattached
+      // view or plain hidden window never does; an offscreen-rendered window does, at a low frame rate.
+      const playlist = key.startsWith('playlist:');
+      const probe = ['mine', 'mixes', 'home'].includes(key) || playlist
+        ? new BrowserWindow({ show: false, width: 1100, height: 850, webPreferences: playlist ? { ...options, offscreen: true } : options })
         : new WebContentsView({ webPreferences: options });
+      if (playlist) probe.webContents.setFrameRate(15);
       active = probe;
       probe.setBounds({ x: 0, y: 0, width: 1100, height: 850 });
       const contents = probe.webContents;
@@ -80,7 +84,7 @@ export function createMusicLibrary({ onIdentity = () => {}, onMismatch = () => {
         await contents.loadURL(target.href);
         if (!isYouTubeURL(contents.getURL())) throw signInError();
         const start = Date.now(), collected = new Map();
-        let last, stale = 0, lastHeight = 0;
+        let last, stale = 0, lastHeight = 0, sent = 0;
         while (Date.now() - start < 18000 && version === generation) {
           if (contents.isDestroyed() || !isYouTubeURL(contents.getURL())) throw signInError();
           last = await contents.executeJavaScript(script);
@@ -89,6 +93,11 @@ export function createMusicLibrary({ onIdentity = () => {}, onMismatch = () => {
           for (const item of values ?? []) if (collected.has(item.id) || collected.size < 1000) {
             const previous = collected.get(item.id);
             collected.set(item.id, { ...item, ...(previous?.versions || item.versions ? { versions: { ...previous?.versions, ...item.versions } } : {}) });
+          }
+          // Hand each new batch of songs over as it arrives, so playback can start on the first page.
+          if (last.tracks && collected.size > sent && version === generation) {
+            try { onProgress([...collected.values()].slice(sent, 500)); } catch { /* A closed window stops listening. */ }
+            sent = collected.size;
           }
           if (last.ready) {
             if (last.signedIn === false && key === 'mine') throw signInError();
@@ -187,9 +196,9 @@ export function createMusicLibrary({ onIdentity = () => {}, onMismatch = () => {
       cache.set(key, result);
       return result;
     },
-    async playlist(value) {
+    async playlist(value, onProgress) {
       const url = playlistURL(value);
-      const result = await page(url, `(${readRenderedPlaylist.toString()})(${parsePlaylistTracks.toString()})`, `playlist:${value.source === 'music' ? 'music' : 'youtube'}:${value.id}:${value.seed ?? ''}`);
+      const result = await page(url, `(${readRenderedPlaylist.toString()})(${parsePlaylistTracks.toString()})`, `playlist:${value.source === 'music' ? 'music' : 'youtube'}:${value.id}:${value.seed ?? ''}`, onProgress);
       if (!result.tracks.length) throw new Error('This playlist is empty or unavailable to your account.');
       return { tracks: result.tracks.slice(0, 500), ids: result.tracks.slice(0, 500).map(track => track.id), partial: result.partial || result.tracks.length > 500 };
     },

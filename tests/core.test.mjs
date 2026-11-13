@@ -13,7 +13,8 @@ test('rejects arbitrary hosts, lookalikes, scripts, and playlist-only URLs', () 
 });
 test('playlist links are distinguished from videos, including watch links carrying a playlist', () => {
   assert.deepEqual(parseYouTubeInput('https://www.youtube.com/playlist?list=PL_example-123'), { type: 'playlist', playlistId: 'PL_example-123', video: null });
-  assert.deepEqual(parseYouTubeInput('https://music.youtube.com/watch?v=M7lc1UVf-VE&list=PL_example-123&t=65'), { type: 'playlist', playlistId: 'PL_example-123', video: { id: 'M7lc1UVf-VE', start: 65 } });
+  assert.deepEqual(parseYouTubeInput('https://music.youtube.com/playlist?list=PL_example-123'), { type: 'playlist', playlistId: 'PL_example-123', video: null, source: 'music' });
+  assert.deepEqual(parseYouTubeInput('https://music.youtube.com/watch?v=M7lc1UVf-VE&list=PL_example-123&t=65'), { type: 'playlist', source: 'music', playlistId: 'PL_example-123', video: { id: 'M7lc1UVf-VE', start: 65 } });
   assert.deepEqual(parseYouTubeInput('https://youtu.be/M7lc1UVf-VE?list=PL_example-123'), { type: 'playlist', playlistId: 'PL_example-123', video: { id: 'M7lc1UVf-VE', start: 0 } });
   assert.deepEqual(parseYouTubeInput('M7lc1UVf-VE'), { type: 'video', id: 'M7lc1UVf-VE', start: 0 });
   for (const value of ['https://youtube.com.evil.test/playlist?list=PL_test', 'https://youtube.com/playlist?list=', 'https://youtube.com/playlist?list=abc%20def', 'https://youtube.com/playlist?list=' + 'a'.repeat(151)]) assert.throws(() => parseYouTubeInput(value));

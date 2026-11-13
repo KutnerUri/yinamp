@@ -478,7 +478,13 @@ async function start() {
       }
       if (value?.action === 'browse') return library.browse(value.section, value.refresh === true);
       if (value?.action === 'versions') return library.versions(value.id);
-      if (value?.action === 'playlist') return library.playlist(value.playlist);
+      if (value?.action === 'playlist') {
+        const requestId = typeof value.requestId === 'string' && value.requestId.length <= 100 ? value.requestId : null;
+        return library.playlist(value.playlist, tracks => {
+          if (!requestId || event.sender.isDestroyed()) return;
+          try { event.sender.send('yinamp:playlist-progress', { requestId, tracks }); } catch {}
+        });
+      }
       throw new Error('Unsupported library request');
     });
   });

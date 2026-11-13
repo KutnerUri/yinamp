@@ -21,6 +21,11 @@ contextBridge.exposeInMainWorld('yinampDesktop', {
     ipcRenderer.on('yinamp:search-results', listener);
     return () => ipcRenderer.removeListener('yinamp:search-results', listener);
   },
+  onPlaylistProgress: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('yinamp:playlist-progress', listener);
+    return () => ipcRenderer.removeListener('yinamp:playlist-progress', listener);
+  },
   layout: bounds => ipcRenderer.send('yinamp:layout', bounds),
   onPlayer: callback => {
     const listener = (_event, value) => callback(value);

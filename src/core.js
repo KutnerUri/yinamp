@@ -48,7 +48,8 @@ export function parseYouTubeInput(input) {
   if (!/^[\w-]{2,150}$/.test(playlistId)) throw new Error('That playlist link needs a valid playlist ID. Copy its link from YouTube.');
   let video = null;
   try { video = parseVideoInput(value); } catch { /* Playlist-only links do not need a video. */ }
-  return { type: 'playlist', playlistId, video };
+  // YouTube Music playlist links are read through YouTube Music (the desktop reader and the music listing).
+  return { type: 'playlist', playlistId, video, ...(url.hostname.toLowerCase() === 'music.youtube.com' ? { source: 'music' } : {}) };
 }
 
 export function appendPlaylistTracks(existing, videoIds, limit = 500) {
