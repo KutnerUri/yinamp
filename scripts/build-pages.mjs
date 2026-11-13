@@ -26,6 +26,8 @@ html = html.replace('<body>', `<body>
 // Search and share metadata (the demo is the public landing page; the desktop app keeps its own title).
 const [owner = 'KutnerUri', repo = 'yinamp'] = (process.env.GITHUB_REPOSITORY || '').split('/').filter(Boolean);
 const siteUrl = process.env.YINAMP_SITE_URL || `https://${owner.toLowerCase()}.github.io/${repo}/`;
+// Google Search Console ownership token for the demo's URL-prefix property (public by design).
+const GOOGLE_SITE_VERIFICATION = 'c_65gtO5NzbmPFhvR7kkY-1wM0badmHUVpBmureBer8';
 const title = 'Yinamp — Winamp-style music player for YouTube';
 const description = 'Yinamp is a free, open-source, Winamp-inspired music player for YouTube and YouTube Music. Skinnable, draggable windows, playlists, and a desktop app for macOS, Windows, and Linux.';
 const image = `${siteUrl}og-image.png`;
@@ -47,7 +49,8 @@ const structuredData = {
 html = html
   .replace(/<title>[^<]*<\/title>/, `<title>${escape(title)}</title>`)
   .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${escape(description)}">`)
-  .replace('</head>', `  <link rel="canonical" href="${siteUrl}">
+  .replace('</head>', `  <meta name="google-site-verification" content="${GOOGLE_SITE_VERIFICATION}">
+  <link rel="canonical" href="${siteUrl}">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Yinamp">
   <meta property="og:url" content="${siteUrl}">
