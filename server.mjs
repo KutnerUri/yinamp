@@ -114,6 +114,28 @@ export function createAppServer({ fetcher = fetch } = {}) {
           return send(502, JSON.stringify({ error: 'Title unavailable. You can still add and play this video.' }));
         }
       }
+      // A pasted playlist link has no name or cover yet; YouTube's oEmbed has both.
+      if (url.pathname === '/api/playlist-info') {
+        const id = url.searchParams.get('id');
+        if (!/^[\w-]{2,150}$/.test(id ?? '')) return send(400, JSON.stringify({ error: 'Invalid YouTube playlist ID' }));
+        const key = `playlist:${id}`;
+        if (metadataCache.has(key)) return send(200, JSON.stringify(metadataCache.get(key)));
+        try {
+          const endpoint = new URL('https://www.youtube.com/oembed');
+          endpoint.searchParams.set('url', `https://www.youtube.com/playlist?list=${id}`);
+          endpoint.searchParams.set('format', 'json');
+          const upstream = await fetcher(endpoint, { signal: AbortSignal.timeout(8000) });
+          if (!upstream.ok) throw new Error('Playlist metadata unavailable');
+          const data = await upstream.json();
+          if (typeof data.title !== 'string') throw new Error('Invalid playlist metadata');
+          const metadata = { id, title: data.title.slice(0, 300), ...(typeof data.thumbnail_url === 'string' ? { thumbnail: data.thumbnail_url.slice(0, 500) } : {}) };
+          if (metadataCache.size > 200) metadataCache.delete(metadataCache.keys().next().value);
+          metadataCache.set(key, metadata);
+          return send(200, JSON.stringify(metadata));
+        } catch {
+          return send(502, JSON.stringify({ error: 'Playlist name unavailable.' }));
+        }
+      }
       const pathname = decodeURIComponent(url.pathname);
       const asset = pathname === '/' ? 'index.html' : pathname.slice(1);
       if (asset !== 'index.html' && !/^(src|skins)\/[a-zA-Z0-9_./-]+$/.test(asset)) return send(404, 'Not found', 'text/plain');

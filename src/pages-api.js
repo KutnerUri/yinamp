@@ -12,6 +12,10 @@ export function demoAPIResponse(url) {
     const playlist = DEMO_PLAYLISTS.find(item => item.id === url.searchParams.get('id'));
     if (playlist) return json({ title: playlist.title, tracks: playlist.tracks, partial: playlist.partial === true });
   }
+  if (url.pathname === '/api/playlist-info') {
+    const playlist = DEMO_PLAYLISTS.find(item => item.id === url.searchParams.get('id'));
+    if (playlist) return json({ id: playlist.id, title: playlist.title, ...(playlist.thumbnail ? { thumbnail: playlist.thumbnail } : {}) });
+  }
   if (url.pathname === '/api/video') {
     const track = DEMO_PLAYLISTS.flatMap(item => item.tracks).find(item => item.id === url.searchParams.get('id'));
     if (track) return json({ title: track.title });

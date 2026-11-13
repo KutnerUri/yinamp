@@ -48,6 +48,19 @@ test('metadata lookup validates IDs before accessing the network and only contac
     assert.equal(requests[0].searchParams.get('url'), 'https://www.youtube.com/watch?v=M7lc1UVf-VE');
   });
 });
+test('playlist info lookup validates IDs and asks YouTube oEmbed for the playlist page', async () => {
+  const requests = [];
+  await withServer(async url => { requests.push(url); return { ok: true, json: async () => ({ title: 'Road trip', thumbnail_url: 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg' }) }; }, async base => {
+    assert.equal((await fetch(`${base}/api/playlist-info?id=bad%20id`)).status, 400);
+    assert.equal(requests.length, 0);
+    const result = await (await fetch(`${base}/api/playlist-info?id=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG`)).json();
+    assert.deepEqual(result, { id: 'PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG', title: 'Road trip', thumbnail: 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg' });
+    assert.equal(requests[0].origin, 'https://www.youtube.com');
+    assert.equal(requests[0].searchParams.get('url'), 'https://www.youtube.com/playlist?list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG');
+    await fetch(`${base}/api/playlist-info?id=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG`);
+    assert.equal(requests.length, 1, 'cached');
+  });
+});
 test('failed title lookups produce a recoverable error while the app still serves', async () => {
   await withServer(async () => { throw new Error('Offline'); }, async base => {
     const response = await fetch(`${base}/api/video?id=HyHNuVaZJ-k`);

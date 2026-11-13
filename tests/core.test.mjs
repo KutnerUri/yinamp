@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RETRY_AFTER_MS, LEGACY_DEMO_TRACKS, canAttemptTrack, parseVideoInput, parseYouTubeInput, appendPlaylistTracks, initialState, nextTrackIndex, validateSkin, SKINS, formatTime } from '../src/core.js';
+import { RETRY_AFTER_MS, LEGACY_DEMO_TRACKS, canAttemptTrack, parseVideoInput, parseYouTubeInput, appendPlaylistTracks, initialState, nextTrackIndex, validateSkin, SKINS, formatTime, removeFromPlaylist, restoreToPlaylist, playlistDisplay, expireGhost } from '../src/core.js';
 
 const sampleState = () => initialState({version:2,playlist:structuredClone(LEGACY_DEMO_TRACKS),selectedId:LEGACY_DEMO_TRACKS[0].id});
 
@@ -142,4 +142,47 @@ test('playlist identity survives restarts only for a nonempty valid queue', () =
   assert.equal(initialState({ version: 2, playlist }).activePlaylist, null);
   assert.equal(initialState({ version: 2, playlist: [], activePlaylist }).activePlaylist, null);
   assert.equal(initialState({ version: 2, playlist, activePlaylist: { id: '<invalid>' } }).activePlaylist, null);
+});
+
+const ids = ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc', 'ddddddddddd', 'eeeeeeeeeee'];
+const queue = (count = 4) => ids.slice(0, count).map(id => ({ id, title: id, duration: 0 }));
+const shown = (playlist, ghosts) => playlistDisplay(playlist, ghosts).map(entry => (entry.ghost ? '~' : '') + entry.track.id[0]).join('');
+
+test('removed tracks stay in place as ghosts and undo restores each slot, in any order', () => {
+  const orders = [[1, 2], [2, 1]];
+  for (const removeOrder of orders) for (const undoOrder of orders) for (const extra of [false, true]) {
+    const playlist = queue(), ghosts = [];
+    const removed = {};
+    for (const i of (extra ? [...removeOrder, 0] : removeOrder)) ghosts.push(removed[i] = removeFromPlaylist(playlist, ids[i], ghosts));
+    assert.equal(shown(playlist, ghosts), extra ? '~a~b~cd' : 'a~b~cd');
+    for (const i of undoOrder) assert.ok(restoreToPlaylist(playlist, ghosts, removed[i]) >= 0);
+    if (extra) assert.ok(restoreToPlaylist(playlist, ghosts, removed[0]) >= 0);
+    assert.deepEqual(playlist.map(t => t.id), ids.slice(0, 4), `remove ${removeOrder} undo ${undoOrder} extra ${extra}`);
+    assert.equal(ghosts.length, 0);
+  }
+});
+
+test('ghosts follow their neighbors, survive expiry of an anchor, and refuse unsafe restores', () => {
+  let playlist = queue(), ghosts = [];
+  const b = removeFromPlaylist(playlist, ids[1], ghosts); ghosts.push(b);
+  playlist.unshift(playlist.pop());
+  assert.equal(shown(playlist, ghosts), 'da~bc', 'stays after its previous track when the queue is reordered');
+  assert.equal(restoreToPlaylist(playlist, ghosts, b), 2);
+  assert.equal(restoreToPlaylist(playlist, ghosts, b), -1, 'undo only once');
+
+  playlist = queue(); ghosts = [];
+  const first = removeFromPlaylist(playlist, ids[1], ghosts); ghosts.push(first);
+  const second = removeFromPlaylist(playlist, ids[2], ghosts); ghosts.push(second);
+  expireGhost(ghosts, first);
+  assert.equal(shown(playlist, ghosts), 'a~cd', 'inherits the anchor of an expired ghost');
+  assert.equal(restoreToPlaylist(playlist, ghosts, second), 1);
+
+  playlist = queue(); ghosts = [];
+  assert.equal(removeFromPlaylist(playlist, 'zzzzzzzzzzz', ghosts), null);
+  const a = removeFromPlaylist(playlist, ids[0], ghosts); ghosts.push(a);
+  assert.equal(a.prevId, null);
+  playlist.push({ id: ids[0], title: 're-added', duration: 0 });
+  assert.equal(restoreToPlaylist(playlist, ghosts, a), -1, 'already back in the queue');
+  const full = queue(3), fullGhost = removeFromPlaylist(full, ids[0], []);
+  assert.equal(restoreToPlaylist(full, [fullGhost], fullGhost, 2), -1, 'full queue');
 });

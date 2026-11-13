@@ -1,7 +1,7 @@
 import { icon } from './icons.js';
 import { createLoader } from './loading-ui.js';
 import { cleanVersions, playbackTrack, versionMode, recordingControl } from './track-versions.js';
-import { normalizePlaylistIdentity, STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp } from './core.js';
+import { normalizePlaylistIdentity, STORAGE_KEY, SKINS, TRACK_ERROR_CODES, canAttemptTrack, initialState, validateSkin, parseYouTubeInput, appendPlaylistTracks, nextTrackIndex, formatTime, clamp, playlistDisplay, removeFromPlaylist, restoreToPlaylist, expireGhost } from './core.js';
 import { YouTubePlayer } from './youtube.js';
 import { setupVisualizer } from './visualizer.js';
 import { setupEqualizer } from './equalizer.js';
@@ -34,6 +34,10 @@ let hasError = false;
 let wantsPlayback = false;
 let noticeTimeout;
 let playlistImport;
+// Playlist feedback: a removed track's undo slot, a flashing row, and a note on the track count.
+// Fade timings follow the golden ratio: φ⁻² s in, φ⁻¹ s out.
+const ROW_FLASH_MS = 1600, UNDO_MS = 5000, SUMMARY_NOTE_MS = 6000, GHOST_IN_MS = 382, GHOST_OUT_MS = 618, ENTRANCE_ROWS = 10, ENTRANCE_STEP_MS = 38;
+let removedTracks = [], ghostsFor = null, flashingRow = null, summaryNote = null, queueEntrance = null, clearedQueue = null, loadingPlaylist = null;
 let playbackRequested = false;
 let playIntentPending = false;
 let skipTimer;
@@ -165,12 +169,11 @@ const player = new Player({
         skipTimer = setTimeout(() => {
           if (!playbackRequested || ui.selectedId.value !== failedId) return;
           const next = nextTrackIndex(snapshot(), { automatic: true, skipCurrent: true });
-          if (next >= 0) { notify(`Skipped unavailable video: ${track.title}`); selectTrack(state.playlist[next].id, true); }
+          if (next >= 0) selectTrack(state.playlist[next].id, true);
           else {
             playbackRequested = false; stopped = true; player.pause();
             ui.playback.value = state.playlist.some(value => canAttemptTrack(value)) ? 'QUEUE FINISHED' : 'NO PLAYABLE TRACKS';
             $('#player-error-message').textContent = `${message} No playable tracks remain in this pass. Use a track’s Retry button to try again.`;
-            notify('Playback stopped. Unavailable tracks stay in your playlist for a later retry.');
           }
         }, 450);
       }
@@ -315,26 +318,62 @@ $('#version-video').onclick = () => {
 
 function renderPlaylist() {
   if (!state.playlist.length) state.activePlaylist = null;
-  const identity = state.activePlaylist;
+  // While a playlist loads, the header already shows it (name and cover as soon as they are known).
+  const loading = loadingPlaylist, identity = loading ?? state.activePlaylist;
+  const header = $('#active-playlist');
+  header.classList.toggle('pending-name', Boolean(loading && !loading.title));
+  header.classList.toggle('pending-cover', Boolean(loading && !loading.thumbnail));
   $('#active-playlist-name').textContent = identity ? identity.title : state.playlist.length ? 'Open a playlist to identify this queue.' : '';
-  $('#active-playlist').hidden = !state.playlist.length;
-  $('#active-playlist').title = identity?.title ?? '';
+  header.hidden = !loading && !state.playlist.length;
+  header.title = identity?.title ?? '';
   const cover = $('#active-playlist-cover');
-  if (cover.getAttribute('src') !== (identity?.thumbnail ?? null)) {
+  if (cover.getAttribute('src') !== (identity?.thumbnail || null)) {
     cover.hidden = !identity?.thumbnail;
     if (identity?.thumbnail) cover.src = identity.thumbnail;
     else cover.removeAttribute('src');
   }
   cover.onerror = () => { cover.hidden = true; };
-  musicLibrary?.setActivePlaylist(identity);
+  musicLibrary?.setActivePlaylist(state.activePlaylist);
+  musicLibrary?.queueChanged();
   const list = $('#playlist');
   const focused = document.activeElement;
   const focusedId = focused?.closest('[data-track-id]')?.dataset.trackId;
   const focusedAction = focused?.dataset.action;
+  // Focus on a ghost's UNDO, or on the × that just removed a track, moves to that ghost's UNDO.
+  const focusedGhost = focused?.closest?.('.playlist-removed')?.dataset.ghostId ?? (focusedAction === 'remove' && removedTracks.some(ghost => ghost.track.id === focusedId) ? focusedId : null);
+  // A replaced queue (opened playlist, loaded file) has no slots to undo into.
+  if (ghostsFor !== state.playlist) { for (const ghost of removedTracks) clearTimeout(ghost.timer); removedTracks = []; ghostsFor = state.playlist; }
+  const now = performance.now();
+  const entrance = queueEntrance && now - queueEntrance < ENTRANCE_ROWS * ENTRANCE_STEP_MS + GHOST_IN_MS ? queueEntrance : null;
+  if (loading) {
+    list.replaceChildren(...Array.from({ length: 7 }, (_, index) => {
+      const row = document.createElement('li'); row.className = 'playlist-skeleton'; row.setAttribute('aria-hidden', 'true');
+      const numberBar = document.createElement('span'), titleBar = document.createElement('span'), durationBar = document.createElement('span');
+      numberBar.className = 'skeleton-number'; titleBar.className = 'skeleton-name'; durationBar.className = 'skeleton-duration';
+      // Vary the title widths between φ⁻¹ and 1 so the rows read as text, not a block.
+      titleBar.style.width = `${Math.round(100 * (0.618 + 0.382 * ((index * 0.618) % 1)))}%`;
+      row.append(numberBar, titleBar, durationBar); return row;
+    }));
+    list.setAttribute('aria-busy', 'true');
+    $('#playlist-summary').textContent = 'LOADING…'; $('#playlist-summary').title = '';
+    $('#retry-unavailable').hidden = true; $('#clear-playlist').hidden = true;
+    refreshPlaylistNavigation();
+    return;
+  }
+  list.removeAttribute('aria-busy');
+  const display = playlistDisplay(state.playlist, removedTracks);
   list.replaceChildren();
-  state.playlist.forEach((track, index) => {
+  let number = 0;
+  display.forEach(({ track, ghost }, position) => {
+    if (ghost) { list.append(removedRow(ghost, now)); return; }
+    const index = number++;
     const row = document.createElement('li');
+    if (entrance && position < ENTRANCE_ROWS) { row.classList.add('entering'); row.style.animationDelay = `${position * ENTRANCE_STEP_MS - (now - entrance)}ms`; }
     row.dataset.trackId = track.id;
+    if (flashingRow?.id === track.id) {
+      const elapsed = performance.now() - flashingRow.start;
+      if (elapsed < ROW_FLASH_MS) { row.classList.remove('entering'); row.classList.add('flash'); row.style.animationDelay = `${-elapsed}ms`; }
+    }
     row.classList.toggle('current', track.id === ui.selectedId.value);
     row.classList.toggle('unavailable', Boolean(track.unavailable));
     const select = document.createElement('button');
@@ -343,14 +382,14 @@ function renderPlaylist() {
     select.dataset.action = 'select';
     select.setAttribute('aria-pressed', String(track.id === ui.selectedId.value));
     select.setAttribute('aria-label', `Select ${track.title}`);
-    const number = document.createElement('span'); number.className = 'track-number'; number.textContent = String(index + 1).padStart(2, '0') + '.';
+    const numberLabel = document.createElement('span'); numberLabel.className = 'track-number'; numberLabel.textContent = String(index + 1).padStart(2, '0') + '.';
     const copy = document.createElement('span'); copy.className = 'track-copy';
     const name = document.createElement('span'); name.className = 'track-name'; name.textContent = track.title; name.title = track.title; copy.append(name);
     if (track.unavailable) {
       const status = document.createElement('span'); status.className = 'track-availability'; status.textContent = retryingId === track.id ? '↻' : '!'; status.setAttribute('aria-label', retryingId === track.id ? 'Retrying' : 'Unavailable'); status.title = track.unavailable.message; copy.append(status);
     }
     const duration = document.createElement('span'); duration.className = 'track-duration'; duration.textContent = track.duration ? formatTime(track.duration) : '--:--';
-    select.append(number, copy, duration);
+    select.append(numberLabel, copy, duration);
     select.addEventListener('click', () => selectTrack(track.id, ui.playback.value === 'PLAYING'));
     select.addEventListener('dblclick', () => selectTrack(track.id, true));
     const tools = document.createElement('div'); tools.className = 'track-tools';
@@ -368,13 +407,67 @@ function renderPlaylist() {
     }
     row.append(select, tools); list.append(row);
   });
-  if (!state.playlist.length) { const empty = document.createElement('li'); empty.className = 'playlist-empty'; empty.textContent = 'Nothing queued. Add your first video.'; list.append(empty); }
+  // Anything queued after a clear replaces it, so its undo no longer applies.
+  if (clearedQueue && state.playlist.length) { clearTimeout(clearedQueue.timer); clearedQueue = null; }
+  if (!display.length) {
+    const empty = document.createElement('li'); empty.className = 'playlist-empty';
+    if (clearedQueue) {
+      const undo = document.createElement('button'); undo.type = 'button'; undo.className = 'removed-undo'; undo.textContent = 'UNDO';
+      undo.setAttribute('aria-label', `Undo clearing ${clearedQueue.playlist.length} tracks`); undo.onclick = undoClear;
+      empty.append(document.createTextNode('Queue cleared.'), undo);
+    } else empty.textContent = 'Nothing queued. Add your first video.';
+    list.append(empty);
+  }
   const total = state.playlist.reduce((sum, track) => sum + track.duration, 0);
   const unavailableCount = state.playlist.filter(track => track.unavailable).length;
-  $('#playlist-summary').textContent = `${state.playlist.length} ${state.playlist.length === 1 ? 'TRACK' : 'TRACKS'}${unavailableCount ? ` · ${unavailableCount} UNAVAILABLE` : total ? ` · ${formatTime(total)}` : ''}`;
+  $('#playlist-summary').textContent = `${state.playlist.length} ${state.playlist.length === 1 ? 'TRACK' : 'TRACKS'}${unavailableCount ? ` · ${unavailableCount} UNAVAILABLE` : total ? ` · ${formatTime(total)}` : ''}${summaryNote ? ` · ${summaryNote.text}` : ''}`;
+  $('#playlist-summary').title = summaryNote?.title ?? '';
   $('#retry-unavailable').hidden = !unavailableCount;
-  if (focusedId && focusedAction) list.querySelector(`[data-track-id="${focusedId}"] [data-action="${focusedAction}"]`)?.focus({ preventScroll: true });
+  $('#clear-playlist').hidden = !state.playlist.length;
+  if (focusedGhost) list.querySelector(`.playlist-removed[data-ghost-id="${CSS.escape(focusedGhost)}"] button`)?.focus({ preventScroll: true });
+  else if (focusedId && focusedAction) list.querySelector(`[data-track-id="${focusedId}"] [data-action="${focusedAction}"]`)?.focus({ preventScroll: true });
   refreshPlaylistNavigation();
+}
+// A removed track keeps its row, struck through, with UNDO where × was, until it fades out.
+function removedRow(ghost, now) {
+  const { track } = ghost;
+  const row = document.createElement('li'); row.className = 'playlist-removed'; row.dataset.ghostId = track.id;
+  if (ghost.leaving) { row.classList.add('leaving'); row.style.animationDelay = `${-(now - ghost.leaving)}ms`; }
+  else if (now - ghost.start < GHOST_IN_MS) { row.classList.add('arriving'); row.style.setProperty('--ghost-delay', `${-(now - ghost.start)}ms`); }
+  const body = document.createElement('span'); body.className = 'track-select';
+  const number = document.createElement('span'); number.className = 'track-number'; number.textContent = '–';
+  const copy = document.createElement('span'); copy.className = 'track-copy';
+  const name = document.createElement('span'); name.className = 'track-name'; name.textContent = track.title; name.title = `Removed: ${track.title}`; copy.append(name);
+  const duration = document.createElement('span'); duration.className = 'track-duration'; duration.textContent = track.duration ? formatTime(track.duration) : '--:--';
+  body.append(number, copy, duration);
+  const tools = document.createElement('div'); tools.className = 'track-tools';
+  const undo = document.createElement('button'); undo.type = 'button'; undo.className = 'removed-undo'; undo.textContent = 'UNDO';
+  undo.setAttribute('aria-label', `Undo removing ${track.title}`); undo.onclick = () => undoRemove(ghost);
+  tools.append(undo); row.append(body, tools);
+  return row;
+}
+// Show where an added or existing track sits: scroll it into the list's view and flash it.
+function flashRow(id) {
+  const flash = flashingRow = { id, start: performance.now() };
+  const list = $('#playlist'), row = list.querySelector(`[data-track-id="${CSS.escape(id)}"]`);
+  for (const other of list.querySelectorAll('li.flash')) if (other !== row) other.classList.remove('flash');
+  if (!row) return;
+  const listRect = list.getBoundingClientRect(), rowRect = row.getBoundingClientRect();
+  const top = rowRect.top - listRect.top - list.clientTop + list.scrollTop;
+  if (top < list.scrollTop) list.scrollTop = top;
+  else if (top + rowRect.height > list.scrollTop + list.clientHeight) list.scrollTop = top + rowRect.height - list.clientHeight;
+  row.classList.remove('flash'); row.style.animationDelay = ''; void row.offsetWidth; row.classList.add('flash');
+  // Reduced motion shows a static outline instead of the fade, so clear it explicitly.
+  setTimeout(() => { if (flashingRow === flash) $(`#playlist [data-track-id="${CSS.escape(id)}"]`)?.classList.remove('flash'); }, ROW_FLASH_MS);
+}
+// Blink the track count after the whole queue changes; a note (e.g. PARTIAL) stays a little longer.
+function flashSummary(note = null) {
+  flashingRow = null;
+  clearTimeout(summaryNote?.timer);
+  summaryNote = note && { ...note, timer: setTimeout(() => { summaryNote = null; renderPlaylist(); }, SUMMARY_NOTE_MS) };
+  renderPlaylist();
+  const summary = $('#playlist-summary');
+  summary.classList.remove('flash'); void summary.offsetWidth; summary.classList.add('flash');
 }
 function clearPlayerError() {
   const wasVisible = !$('#player-error').hidden;
@@ -417,33 +510,80 @@ function moveTrack(id, direction) {
   renderPlaylist(); persist();
 }
 function removeTrack(id) {
-  const index = state.playlist.findIndex(t => t.id === id);
   const wasPlaying = playbackRequested;
-  state.playlist.splice(index, 1);
+  const removed = removeFromPlaylist(state.playlist, id, removedTracks);
+  if (!removed) return;
+  const { index } = removed;
   if (ui.selectedId.value === id) {
     const next = state.playlist[Math.min(index, state.playlist.length - 1)];
     if (next) selectTrack(next.id, wasPlaying);
-    else { clearTimeout(skipTimer); ui.selectedId.value = null; stopped = true; wantsPlayback = false; playbackRequested = false; ui.playback.value = 'EMPTY'; clearPlayerError(); loadRecording(null); void resolveVersions(); updateTrack(); }
+    else resetToEmpty();
   }
+  const ghost = { ...removed, start: performance.now(), leaving: 0 };
+  ghost.timer = setTimeout(() => leaveGhost(ghost), UNDO_MS);
+  removedTracks.push(ghost);
   renderPlaylist(); persist();
-  notify('Track removed.');
+}
+function leaveGhost(ghost) {
+  ghost.leaving = performance.now();
+  renderPlaylist();
+  ghost.timer = setTimeout(() => {
+    // If its UNDO had focus, hand focus to whatever now sits in that spot.
+    const list = $('#playlist'), row = list.querySelector(`.playlist-removed[data-ghost-id="${CSS.escape(ghost.track.id)}"]`);
+    const position = row?.contains(document.activeElement) ? [...list.children].indexOf(row) : -1;
+    expireGhost(removedTracks, ghost); renderPlaylist();
+    if (position >= 0) (list.children[Math.min(position, list.children.length - 1)]?.querySelector('button') ?? $('#playlist-add')).focus({ preventScroll: true });
+  }, GHOST_OUT_MS);
+}
+function resetToEmpty() {
+  clearTimeout(skipTimer); ui.selectedId.value = null; stopped = true; wantsPlayback = false; playbackRequested = false;
+  ui.playback.value = 'EMPTY'; clearPlayerError(); loadRecording(null); void resolveVersions(); updateTrack();
+}
+// Clearing empties the queue at once; the empty list offers UNDO for a few seconds.
+function clearPlaylist() {
+  if (!state.playlist.length) return;
+  const hadFocus = document.activeElement === $('#clear-playlist');
+  clearTimeout(clearedQueue?.timer);
+  clearedQueue = { playlist: state.playlist, selectedId: ui.selectedId.value, activePlaylist: state.activePlaylist, timer: setTimeout(() => { clearedQueue = null; renderPlaylist(); }, UNDO_MS) };
+  stop(); state.playlist = []; state.activePlaylist = null; resetToEmpty();
+  renderPlaylist(); persist();
+  if (hadFocus) $('#playlist .playlist-empty button')?.focus({ preventScroll: true });
+}
+function undoClear() {
+  const cleared = clearedQueue;
+  if (!cleared || state.playlist.length) return;
+  clearTimeout(cleared.timer); clearedQueue = null;
+  state.playlist = cleared.playlist; state.activePlaylist = cleared.activePlaylist;
+  ui.selectedId.value = cleared.selectedId;
+  flashingRow = null; queueEntrance = performance.now(); renderPlaylist();
+  if (currentTrack()) selectTrack(ui.selectedId.value);
+  persist();
+  $('#clear-playlist').focus({ preventScroll: true });
+}
+function undoRemove(ghost) {
+  clearTimeout(ghost.timer);
+  const restored = ghostsFor === state.playlist && restoreToPlaylist(state.playlist, removedTracks, ghost) >= 0;
+  if (!restored) expireGhost(removedTracks, ghost);
+  renderPlaylist();
+  if (!restored) return;
+  if (!ui.selectedId.value) selectTrack(ghost.track.id);
+  persist();
+  flashRow(ghost.track.id);
+  $(`#playlist [data-track-id="${CSS.escape(ghost.track.id)}"] .track-select`)?.focus({ preventScroll: true });
 }
 function navigate(direction) {
   const index = nextTrackIndex(snapshot(), { direction });
   if (index >= 0) selectTrack(state.playlist[index].id, true);
-  else notify('No playable tracks are available. Use Retry on an unavailable track.');
 }
 function retryTrack(id) {
   if (!state.playlist.some(track => track.id === id)) return;
   selectTrack(id, true);
-  notify('Retrying the video…');
 }
 function retryUnavailable() {
   const tracks = state.playlist.filter(track => track.unavailable);
   for (const track of tracks) track.unavailable.checkedAt = 0;
   persist(); renderPlaylist();
   if (!playbackRequested && tracks.length) retryTrack(tracks[0].id);
-  else notify('Unavailable tracks will be tried again as the playlist reaches them.');
 }
 function play() {
   playIntentPending = true;
@@ -453,7 +593,7 @@ function play() {
   stopped = false; wantsPlayback = true; playbackRequested = true;
   if (currentTrack().unavailable && player.ready) { retryTrack(ui.selectedId.value); return; }
   if (player.ready) player.play();
-  else { loadRecording(currentTrack(), true); notify('Connecting to YouTube…'); }
+  else loadRecording(currentTrack(), true);
 }
 function pause() { playIntentPending = false; if (switchFallback) switchFallback.autoplay = false; playbackRequested = false; clearTimeout(skipTimer); wantsPlayback = false; if (!player.ready) loadRecording(currentTrack(), false); player.pause(); }
 function stop() { playIntentPending = false; if (switchFallback) switchFallback.autoplay = false; playbackRequested = false; clearTimeout(skipTimer); stopped = true; wantsPlayback = false; player.stop(); if (!player.ready) loadRecording(currentTrack(), false); ui.playback.value = currentTrack() ? 'STOPPED' : 'EMPTY'; $('#time').textContent = '00:00'; $('#seek').value = 0; }
@@ -497,7 +637,6 @@ function download(value, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function showDialog(id) { const dialog = $(`#${id}`); if (!dialog.open) dialog.showModal(); }
-function openAdd() { $('#add-error').hidden = true; updateAddForm(); showDialog('add-dialog'); $('#video-url').focus(); }
 for (const button of document.querySelectorAll('[data-dismiss]')) button.addEventListener('click', () => button.closest('dialog').close());
 for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } });
 $('#open-add').onclick = openAdd; $('#playlist-add').onclick = openAdd;
@@ -549,8 +688,8 @@ musicLibrary = setupMusicLibrary({ pinnedSearches: state.pinnedSearches, onPinsC
     state.playlist.push(track); state.activePlaylist = null;
   }
   renderPlaylist(); if (autoplay) selectTrack(track.id, true); persist();
-}, onSignIn: () => accountAction('library'), onLayout: () => panels.refresh() });
-$('#reset-layout').onclick = () => { panels.reset(); notify('Windows arranged.'); };
+}, isQueued: id => state.playlist.some(track => track.id === id), onUnqueue: item => removeTrack(item.id), onSignIn: () => accountAction('library'), onLayout: () => panels.refresh() });
+$('#reset-layout').onclick = () => panels.reset();
 $('#compact-main').onclick = () => { const body = $('#main-body'); body.hidden = !body.hidden; $('#compact-main').setAttribute('aria-expanded', String(!body.hidden)); panels.refresh(); };
 $('#fullscreen').onclick = async () => { if (window.yinampDesktop) { player.fullscreen(); return; } try { if (document.fullscreenElement) await document.exitFullscreen(); else await $('#video-viewport').requestFullscreen(); } catch { notify('Use the fullscreen button inside the YouTube video on this browser.'); } };
 $('#play').onclick = play; $('#pause').onclick = pause; $('#stop').onclick = stop;
@@ -566,7 +705,7 @@ window.addEventListener('pointercancel', finishVolumeAdjustment);
 window.addEventListener('blur', finishVolumeAdjustment);
 $('#mute').onclick = toggleMute;
 $('#shuffle').onclick = () => { ui.shuffle.value = !ui.shuffle.value; persist(); };
-$('#repeat').onclick = () => { ui.repeat.value = { off: 'all', all: 'one', one: 'off' }[ui.repeat.value]; persist(); notify(`Repeat ${ui.repeat.value}.`); };
+$('#repeat').onclick = () => { ui.repeat.value = { off: 'all', all: 'one', one: 'off' }[ui.repeat.value]; persist(); };
 $('#toggle-eq').onclick = () => togglePanel('eq'); $('#toggle-playlist').onclick = () => togglePanel('playlist');
 for (const button of document.querySelectorAll('[data-close]')) button.onclick = () => togglePanel(button.dataset.close);
 $('#retry-player').onclick = () => retryPlayer(true);
@@ -576,23 +715,38 @@ $('#seek').onchange = event => { stopped = false; player.seek(Number(event.targe
 $('#seek').addEventListener('pointercancel', () => { seeking = false; });
 $('#seek').addEventListener('blur', () => { seeking = false; });
 
+// Inline add row in the playlist window: one link field whose buttons follow the pasted link.
+function parsedAddInput() { try { return parseYouTubeInput($('#video-url').value); } catch { return null; } }
+function setAddNote(text) { $('#add-status').textContent = text; $('#add-status').hidden = !text; }
+function showAddError(text) { $('#add-error').textContent = text; $('#add-error').hidden = false; }
 function updateAddForm() {
-  let parsed;
-  try { parsed = parseYouTubeInput($('#video-url').value); } catch { /* Validate on submission. */ }
-  const hasPlaylist = parsed?.type === 'playlist';
-  const wholePlaylist = hasPlaylist && (!parsed.video || $('#include-playlist').checked);
-  $('#playlist-option').hidden = !hasPlaylist || !parsed.video;
-  $('#video-title-field').hidden = wholePlaylist;
-  $('#add-submit').textContent = wholePlaylist ? 'OPEN PLAYLIST' : 'ADD VIDEO';
-  $('#add-hint').textContent = wholePlaylist ? 'Replace the queue with this playlist. Your current queue stays until it loads.' : 'Add one video or open a YouTube playlist.';
+  if (playlistImport) return;
+  const parsed = parsedAddInput(), isPlaylist = parsed?.type === 'playlist';
+  $('#add-submit').textContent = !isPlaylist ? 'ADD' : parsed.video ? 'ADD SONG' : 'REPLACE LIST';
+  $('#add-replace').textContent = 'REPLACE LIST';
+  $('#add-replace').hidden = !(isPlaylist && parsed.video);
+  setAddNote('');
 }
-function setAddBusy(busy) {
+function setAddBusy(busy, button = $('#add-submit')) {
   $('#add-form').setAttribute('aria-busy', String(busy));
-  for (const id of ['video-url', 'video-title', 'include-playlist', 'add-submit']) $(`#${id}`).disabled = busy;
-  $('#playlist-preview').hidden = !busy;
-  $('#add-status').hidden = !busy;
-  if (busy) { $('#add-submit').replaceChildren(createLoader(), document.createTextNode('LOADING…')); $('#add-status').textContent = 'Loading the playlist from YouTube…'; }
+  for (const id of ['video-url', 'add-submit', 'add-replace']) $(`#${id}`).disabled = busy;
+  if (busy) { button.replaceChildren(createLoader(), document.createTextNode('LOADING…')); setAddNote('Loading the playlist from YouTube…'); }
   else updateAddForm();
+}
+function openAdd() {
+  if (!ui.visibility.playlist.value) togglePanel('playlist');
+  $('#add-error').hidden = true;
+  $('.playlist-toolbar').hidden = true; $('#add-form').hidden = false;
+  updateAddForm(); panels.refresh();
+  $('#video-url').focus();
+}
+function closeAdd() {
+  const hadFocus = $('#add-form').contains(document.activeElement);
+  playlistImport?.abort(); playlistImport = null; setAddBusy(false);
+  $('#add-form').reset(); $('#add-form').hidden = true; $('.playlist-toolbar').hidden = false;
+  $('#add-error').hidden = true; setAddNote('');
+  panels.refresh();
+  if (hadFocus) $('#playlist-add').focus({ preventScroll: true });
 }
 async function fillTrackTitles(tracks) {
   const remaining = [...tracks];
@@ -613,12 +767,36 @@ async function fillTrackTitles(tracks) {
   };
   await Promise.all(Array.from({ length: Math.min(4, tracks.length) }, worker));
 }
-$('#video-url').oninput = () => { $('#include-playlist').checked = true; $('#add-error').hidden = true; updateAddForm(); };
-$('#include-playlist').onchange = updateAddForm;
-$('#add-dialog').addEventListener('close', () => playlistImport?.abort());
-$('#add-dialog').addEventListener('cancel', () => playlistImport?.abort());
+$('#video-url').oninput = () => { $('#add-error').hidden = true; updateAddForm(); };
+$('#video-url').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeAdd(); } });
+$('#add-cancel').onclick = closeAdd;
+// Clicking away from an empty field closes it; switching apps (e.g. to copy a link) does not.
+$('#add-form').addEventListener('focusout', () => setTimeout(() => {
+  if (!$('#add-form').hidden && !playlistImport && document.hasFocus() && !$('#add-form').contains(document.activeElement) && !$('#video-url').value.trim()) closeAdd();
+}, 0));
 
+async function fetchPlaylistInfo(id) {
+  try {
+    const response = await fetch(`/api/playlist-info?id=${encodeURIComponent(id)}`);
+    return response.ok ? await response.json() : null;
+  } catch { return null; } // The playlist still plays without its name.
+}
 async function openOnlinePlaylist(value, autoplay = false, options = {}) {
+  const id = value.id ?? value.playlistId;
+  // Show the incoming playlist at once; the current queue keeps playing underneath until its songs arrive.
+  // A pasted link has no name or cover yet, so ask for them alongside the songs rather than after.
+  const loading = loadingPlaylist = { id, title: value.title || '', thumbnail: value.thumbnail || '' };
+  let info = null;
+  const infoRequest = value.title ? null : fetchPlaylistInfo(id).then(data => {
+    info = data;
+    if (data && loadingPlaylist === loading) { loading.title ||= data.title; loading.thumbnail ||= data.thumbnail ?? ''; renderPlaylist(); }
+    return data;
+  });
+  renderPlaylist();
+  try { return await loadOnlinePlaylist(value, autoplay, options, loading, () => info, infoRequest); }
+  finally { if (loadingPlaylist === loading) { loadingPlaylist = null; renderPlaylist(); } }
+}
+async function loadOnlinePlaylist(value, autoplay, options, loading, knownInfo, infoRequest) {
   const source = window.yinampDesktop?.library
     ? await window.yinampDesktop.library({ action: 'playlist', playlist: { id: value.id ?? value.playlistId, seed: value.seed ?? value.video?.id ?? null, source: value.source ?? 'youtube' } })
     : value.source === 'music' ? await (async () => { const response = await fetch(`/api/playlist?id=${encodeURIComponent(value.id)}&source=music`, { signal: options.signal }); const data = await response.json(); if (!response.ok) throw new Error(data.error); return data; })()
@@ -635,52 +813,61 @@ async function openOnlinePlaylist(value, autoplay = false, options = {}) {
     const versions = cleanVersions(data?.versions);
     if (Object.keys(versions).length) track.versions = versions;
   }
-  stop(); state.activePlaylist = normalizePlaylistIdentity({ ...value, title: value.title || source.title }); state.playlist = result.added; ui.selectedId.value = result.added[0].id;
-  renderPlaylist(); selectTrack(ui.selectedId.value, autoplay); persist();
+  // Name and cover: the card's, the listing's, or YouTube's answer; until that arrives, the first video's thumbnail.
+  const info = knownInfo(), title = value.title || source.title || info?.title;
+  if (loadingPlaylist === loading) loadingPlaylist = null;
+  stop(); state.activePlaylist = normalizePlaylistIdentity({ ...value, title, thumbnail: value.thumbnail || info?.thumbnail || `https://i.ytimg.com/vi/${result.added[0].id}/hqdefault.jpg` }); state.playlist = result.added; ui.selectedId.value = result.added[0].id;
+  const id = state.activePlaylist?.id;
+  if (!title && infoRequest) void infoRequest.then(data => {
+    if (!data || state.activePlaylist?.id !== id) return;
+    state.activePlaylist = normalizePlaylistIdentity({ ...state.activePlaylist, title: data.title, thumbnail: data.thumbnail ?? state.activePlaylist.thumbnail });
+    renderPlaylist(); persist();
+  });
+  queueEntrance = performance.now(); renderPlaylist(); selectTrack(ui.selectedId.value, autoplay); persist();
   void fillTrackTitles(result.added.filter(track => !metadata.has(track.id)));
   return { partial: source.partial || result.overflow > 0, count: result.added.length };
 }
 
-$('#add-form').onsubmit = async event => {
+async function replaceQueueFrom(playlist, button) {
+  const controller = new AbortController();
+  playlistImport = controller;
+  $('#add-error').hidden = true;
+  setAddBusy(true, button);
+  try {
+    const result = await openOnlinePlaylist(playlist, false, { signal: controller.signal, onFallback: () => setAddNote('Reading the public playlist listing…') });
+    if (controller.signal.aborted) return;
+    playlistImport = null; closeAdd();
+    flashSummary(result.partial ? { text: 'PARTIAL', title: 'Only part of this playlist could be loaded.' } : null);
+  } catch (error) {
+    if (error.name !== 'AbortError' && !controller.signal.aborted) showAddError(error.message);
+  } finally {
+    if (playlistImport === controller) { playlistImport = null; setAddBusy(false); }
+  }
+}
+function addSong({ id, start }) {
+  // Already queued: point at it without interrupting what is playing.
+  if (state.playlist.some(track => track.id === id)) { closeAdd(); flashRow(id); return; }
+  if (state.playlist.length >= 500) { showAddError('Your playlist is full (500 tracks). Remove a track first.'); return; }
+  const track = { id, start, title: `YouTube — ${id}`, duration: 0 };
+  state.activePlaylist = null;
+  state.playlist.push(track);
+  renderPlaylist();
+  if (!ui.selectedId.value) selectTrack(track.id); else persist();
+  closeAdd(); flashRow(track.id);
+  void fillTrackTitles([track]);
+}
+$('#add-form').onsubmit = event => {
   event.preventDefault();
   if (playlistImport) return;
   let parsed;
   try { parsed = parseYouTubeInput($('#video-url').value); }
-  catch (error) { $('#add-error').textContent = error.message; $('#add-error').hidden = false; return; }
-  const wholePlaylist = parsed.type === 'playlist' && (!parsed.video || $('#include-playlist').checked);
-  if (wholePlaylist) {
-    const controller = new AbortController();
-    playlistImport = controller;
-    $('#add-error').hidden = true;
-    setAddBusy(true);
-    try {
-      const result = await openOnlinePlaylist(parsed, false, {
-        signal: controller.signal,
-        onFallback: () => { $('#playlist-preview').hidden = true; $('#add-status').textContent = 'Reading the public playlist listing…'; },
-      });
-      if (controller.signal.aborted || !$('#add-dialog').open) return;
-      $('#add-dialog').close(); $('#add-form').reset();
-      notify(`Opened ${result.count} songs.${result.partial ? ' Loaded the available portion of this playlist.' : ''}`);
-    } catch (error) {
-      if (error.name !== 'AbortError' && $('#add-dialog').open) { $('#add-error').textContent = error.message; $('#add-error').hidden = false; }
-    } finally {
-      if (playlistImport === controller) { playlistImport = null; setAddBusy(false); }
-    }
-    return;
-  }
-  if (parsed.type === 'playlist') parsed = parsed.video;
-  else { const { id, start } = parsed; parsed = { id, start }; }
-  if (state.playlist.some(track => track.id === parsed.id)) { selectTrack(parsed.id); $('#add-dialog').close(); notify('That video is already in your playlist. Selected it for you.'); return; }
-  if (state.playlist.length >= 500) { $('#add-error').textContent = 'Your playlist is full (500 tracks). Remove a track first.'; $('#add-error').hidden = false; return; }
-  const title = $('#video-title').value.trim();
-  const track = { ...parsed, title: title || `YouTube — ${parsed.id}`, duration: 0 };
-  state.activePlaylist = null;
-  state.playlist.push(track);
-  const first = !ui.selectedId.value;
-  if (first) { renderPlaylist(); selectTrack(track.id); }
-  else { renderPlaylist(); persist(); }
-  $('#add-dialog').close(); $('#add-form').reset(); notify('Added to your playlist.');
-  if (!title) void fillTrackTitles([track]);
+  catch (error) { showAddError(error.message); return; }
+  if (parsed.type === 'playlist' && !parsed.video) void replaceQueueFrom(parsed, $('#add-submit'));
+  else addSong(parsed.type === 'playlist' ? parsed.video : parsed);
+};
+$('#add-replace').onclick = () => {
+  const parsed = parsedAddInput();
+  if (!playlistImport && parsed?.type === 'playlist') void replaceQueueFrom(parsed, $('#add-replace'));
 };
 
 for (const button of document.querySelectorAll('[data-skin]')) button.onclick = () => { state.skin = structuredClone(SKINS[button.dataset.skin]); renderSkin(); persist(); };
@@ -698,11 +885,12 @@ $('#skin-file').onchange = async event => {
   try {
     if (file.size > 65536) throw new Error('Skin files must be smaller than 64 KB.');
     state.skin = validateSkin(JSON.parse(await file.text()));
-    $('#skin-error').hidden = true; renderSkin(); persist(); notify(`Loaded ${state.skin.name}.`);
+    $('#skin-error').hidden = true; renderSkin(); persist();
   } catch (error) { $('#skin-error').textContent = error instanceof SyntaxError ? 'That file is not valid JSON.' : error.message; $('#skin-error').hidden = false; }
 };
 $('#export-playlist').onclick = () => download({ version: 1, name: 'Yinamp playlist', tracks: state.playlist }, 'yinamp-playlist.json');
 $('#import-playlist').onclick = () => $('#playlist-file').click();
+$('#clear-playlist').onclick = clearPlaylist;
 $('#playlist-file').onchange = async event => {
   const file = event.target.files[0]; event.target.value = ''; if (!file) return;
   try {
@@ -712,10 +900,10 @@ $('#playlist-file').onchange = async event => {
     const imported = initialState({ version: 2, playlist: data.tracks });
     resetEmbedFailures(imported.playlist);
     stop(); state.activePlaylist = null; state.playlist = imported.playlist; ui.selectedId.value = imported.selectedId;
-    renderPlaylist();
+    queueEntrance = performance.now(); renderPlaylist();
     if (currentTrack()) selectTrack(ui.selectedId.value);
     else { loadRecording(null); void resolveVersions(); ui.playback.value = 'EMPTY'; updateTrack(); renderPlaylist(); persist(); }
-    notify(`Loaded ${state.playlist.length} tracks.`);
+    flashSummary();
   } catch (error) { notify(error instanceof SyntaxError ? 'That file is not valid JSON.' : error.message, true); }
 };
 

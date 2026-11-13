@@ -150,3 +150,48 @@ export function normalizePlaylistIdentity(value) {
   } catch { /* A playlist may have no artwork. */ }
   return { ...(thumbnail ? { thumbnail } : {}), id, source: value.source === 'music' ? 'music' : 'youtube', title: typeof value.title === 'string' && value.title.trim() ? value.title.trim().slice(0, 300) : 'YouTube playlist' };
 }
+
+// Removed tracks stay in the shown order as "ghosts" for a short undo window. Each ghost sits after
+// whatever was right before it when it was removed (a track or another ghost), so reordering and
+// several removals keep every slot where the user expects it.
+export function playlistDisplay(playlist, ghosts = []) {
+  const display = playlist.map(track => ({ track, ghost: null }));
+  let pending = [...ghosts];
+  while (pending.length) {
+    const waiting = [];
+    for (const ghost of pending) {
+      const at = ghost.prevId === null ? 0 : display.findIndex(entry => entry.track.id === ghost.prevId) + 1;
+      if (at > 0 || ghost.prevId === null) display.splice(at, 0, { track: ghost.track, ghost });
+      else waiting.push(ghost);
+    }
+    // Anything still unplaced lost its anchor; keep it at the end rather than dropping it.
+    if (waiting.length === pending.length) { for (const ghost of waiting) display.push({ track: ghost.track, ghost }); break; }
+    pending = waiting;
+  }
+  return display;
+}
+export function removeFromPlaylist(playlist, id, ghosts = []) {
+  const display = playlistDisplay(playlist, ghosts);
+  const shown = display.findIndex(entry => !entry.ghost && entry.track.id === id);
+  if (shown < 0) return null;
+  const index = playlist.findIndex(track => track.id === id);
+  playlist.splice(index, 1);
+  return { track: display[shown].track, prevId: display[shown - 1]?.track.id ?? null, index };
+}
+export function restoreToPlaylist(playlist, ghosts, ghost, limit = 500) {
+  if (!ghosts.includes(ghost) || playlist.length >= limit || playlist.some(track => track.id === ghost.track.id)) return -1;
+  const display = playlistDisplay(playlist, ghosts);
+  const shown = display.findIndex(entry => entry.ghost === ghost);
+  const before = display.slice(0, shown).reverse().find(entry => !entry.ghost);
+  const index = before ? playlist.indexOf(before.track) + 1 : 0;
+  playlist.splice(index, 0, ghost.track);
+  ghosts.splice(ghosts.indexOf(ghost), 1);
+  return index;
+}
+// An expired ghost leaves for good; ghosts anchored to it inherit its anchor.
+export function expireGhost(ghosts, ghost) {
+  const at = ghosts.indexOf(ghost);
+  if (at < 0) return;
+  ghosts.splice(at, 1);
+  for (const other of ghosts) if (other.prevId === ghost.track.id) other.prevId = ghost.prevId;
+}

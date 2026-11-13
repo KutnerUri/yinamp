@@ -4,7 +4,7 @@ import { libraryAccountIdentity, libraryAccountChanged } from './library-account
 import { createLoader, createLibrarySkeleton } from './loading-ui.js';
 import { PlaylistCache } from './playlist-cache.js';
 
-export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [], onPinsChanged, onLayout = () => {}, activePlaylist = null }) {
+export function setupMusicLibrary({ onPlay, onSong, isQueued = () => false, onUnqueue = () => {}, onSignIn, pinnedSearches = [], onPinsChanged, onLayout = () => {}, activePlaylist = null }) {
   const $ = selector => document.querySelector(selector);
   const desktop = Boolean(window.yinampDesktop);
   let section = desktop ? 'mine' : 'discover', request = 0, opening = null, loading = false, selected = activePlaylist, signature, visibleData = null;
@@ -44,6 +44,43 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
 
   const captions = { mine: 'YOUR CREATED & SAVED MUSIC PLAYLISTS', mixes: 'MIXES FROM YOUR YOUTUBE MUSIC ACCOUNT', discover: desktop ? 'PLAYLISTS FROM YOUR YOUTUBE MUSIC HOME FEED' : 'COMMUNITY & FEATURED MUSIC PLAYLISTS' };
   function message(text, error = false) { $('#library-message').replaceChildren(...(loading ? [createLoader()] : []), document.createTextNode(text)); $('#library-message').hidden = !text; $('#library-message').setAttribute('role', error ? 'alert' : 'status'); }
+  // Song cards answer on the card itself: a brief PLAYING/QUEUED note, then UNQUEUE while the song stays queued.
+  const SONG_FEEDBACK_MS = 1000;
+  const songFeedback = new Map(), songItems = new WeakMap();
+  function songStatus(text) { const status = document.createElement('span'); status.className = 'song-status'; status.setAttribute('role', 'status'); status.textContent = text; return status; }
+  function renderSongActions(actions) {
+    const item = songItems.get(actions), feedback = songFeedback.get(item.id), queued = isQueued(item.id);
+    const state = feedback ? `feedback:${feedback.text}` : `queued:${queued}`;
+    if (actions.dataset.state === state) return;
+    const refocus = actions.contains(document.activeElement), focusIndex = [...actions.children].indexOf(document.activeElement);
+    actions.dataset.state = state;
+    // Keep keyboard focus on the card while its buttons are swapped out and back in.
+    if (feedback) { const status = songStatus(feedback.text); status.tabIndex = -1; actions.replaceChildren(status); if (refocus) status.focus({ preventScroll: true }); return; }
+    const controls = [];
+    for (const autoplay of [true, false]) {
+      const unqueue = !autoplay && queued;
+      const action = document.createElement('button'); action.type = 'button'; action.className = 'metal small-button'; action.textContent = autoplay ? '▶ PLAY NOW' : unqueue ? '− UNQUEUE' : '+ QUEUE';
+      action.setAttribute('aria-label', `${autoplay ? 'Play' : unqueue ? 'Remove from queue' : 'Add to queue'} ${item.title}`); action.disabled = Boolean(opening);
+      action.onclick = () => {
+        if (opening) return;
+        try {
+          if (unqueue) onUnqueue(item);
+          else { onSong(item, autoplay); actions.dataset.returnFocus = String(controls.indexOf(action)); showSongFeedback(item.id, autoplay ? '▶ PLAYING' : '✓ QUEUED'); }
+        } catch (error) { message(cleanError(error), true); }
+      };
+      controls.push(action);
+    }
+    actions.replaceChildren(...controls);
+    const target = controls[Number(actions.dataset.returnFocus ?? focusIndex)];
+    delete actions.dataset.returnFocus;
+    if (refocus) (target?.tagName === 'BUTTON' ? target : controls.find(control => control.tagName === 'BUTTON'))?.focus({ preventScroll: true });
+  }
+  function refreshSongCards() { for (const actions of document.querySelectorAll('#library-results .song-actions[data-song-id]')) renderSongActions(actions); }
+  function showSongFeedback(id, text) {
+    clearTimeout(songFeedback.get(id)?.timer);
+    songFeedback.set(id, { text, timer: setTimeout(() => { songFeedback.delete(id); refreshSongCards(); }, SONG_FEEDBACK_MS) });
+    refreshSongCards();
+  }
   function updateCards() {
     for (const button of document.querySelectorAll('.song-actions button')) button.disabled = Boolean(opening);
     for (const button of document.querySelectorAll('#library-results button.library-card')) {
@@ -91,9 +128,10 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
       if (['song','video','artist','album','profile'].includes(item.kind)) {
         const card = document.createElement('div'); card.className = `library-card song-card${item.topResult?' top-result':''}`;
         const actions = document.createElement('span'); actions.className = 'song-actions';
-        for (const [label, autoplay] of (['song','video'].includes(item.kind) ? [['▶ PLAY NOW', true], ['+ QUEUE', false]] : [['OPEN IN YOUTUBE MUSIC', null]])) {
-          const action = document.createElement('button'); action.type = 'button'; action.className = 'metal small-button'; action.textContent = label; action.setAttribute('aria-label', `${autoplay===null?'Open in YouTube Music':autoplay ? 'Play' : 'Add to queue'} ${item.title}`);
-          action.disabled = Boolean(opening); action.onclick = () => { if (opening) return; try { if(autoplay===null){const url=musicResultURL(item);if(desktop)void window.yinampDesktop.openMusicResult(item).catch(error=>message(cleanError(error),true));else window.open(url,'_blank','noopener');return;} onSong(item, autoplay); message(`${autoplay ? 'Playing' : 'Queued'} ${item.title}.`); } catch (error) { message(cleanError(error), true); } }; actions.append(action);
+        if (['song','video'].includes(item.kind)) { actions.dataset.songId = item.id; songItems.set(actions, item); renderSongActions(actions); }
+        else {
+          const action = document.createElement('button'); action.type = 'button'; action.className = 'metal small-button'; action.textContent = 'OPEN IN YOUTUBE MUSIC'; action.setAttribute('aria-label', `Open in YouTube Music ${item.title}`);
+          action.disabled = Boolean(opening); action.onclick = () => { if (opening) return; if (desktop) void window.yinampDesktop.openMusicResult(item).catch(error => message(cleanError(error), true)); else window.open(musicResultURL(item), '_blank', 'noopener'); }; actions.append(action);
         }
         play.remove(); copy.append(actions); card.append(art, copy); root.append(card);
       } else root.append(button);
@@ -214,6 +252,7 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
   $('#library-sign-in').onclick = onSignIn;
   select(section);
   return {
+    queueChanged: refreshSongCards,
     setActivePlaylist(value) {
       if (selected?.id === value?.id && selected?.title === value?.title) return;
       selected = value; updateCards();

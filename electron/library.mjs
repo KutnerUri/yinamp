@@ -92,6 +92,8 @@ export function createMusicLibrary({ onIdentity = () => {}, onMismatch = () => {
           }
           if (last.ready) {
             if (last.signedIn === false && key === 'mine') throw signInError();
+            // A playlist that already shows its end (no continuation) is complete; don't wait for the page to go quiet.
+            if (last.tracks && last.partial === false && collected.size) break;
             if (collected.size === before && last.height === lastHeight) stale++; else stale = 0;
             if (stale >= 6 && Date.now() - start >= 4000 || collected.size >= (last.tracks ? 500 : 1000)) break;
             await contents.executeJavaScript(scrollScript);
