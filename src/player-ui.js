@@ -23,6 +23,8 @@ export function savedPlayerState(state, ui) {
 
 export function bindPlayerUI(ui, { root = document, onLayout, onInactive }) {
   const $ = selector => root.querySelector(selector);
+  // The page's own <title> (the demo build sets a search-friendly one) is shown while idle.
+  const idleTitle = root.title || 'Yinamp';
   const volumeLabel = computed(() => ui.muted.value ? 'MUTED' : `${Math.round(ui.volume.value)}%`);
   const disposers = [
     effect(() => {
@@ -60,7 +62,7 @@ export function bindPlayerUI(ui, { root = document, onLayout, onInactive }) {
     }),
     effect(() => {
       root.title = ui.playback.value === 'PLAYING' && ui.selectedId.value
-        ? `▶ ${ui.trackTitle.value} — Yinamp` : 'Yinamp — Back to the desktop.';
+        ? `▶ ${ui.trackTitle.value} — Yinamp` : idleTitle;
     }),
   ];
   let previousId = null;

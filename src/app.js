@@ -501,7 +501,7 @@ function openAdd() { $('#add-error').hidden = true; updateAddForm(); showDialog(
 for (const button of document.querySelectorAll('[data-dismiss]')) button.addEventListener('click', () => button.closest('dialog').close());
 for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } });
 $('#open-add').onclick = openAdd; $('#playlist-add').onclick = openAdd;
-$('#open-skins').onclick = () => showDialog('skins-dialog'); $('#footer-skins').onclick = () => showDialog('skins-dialog');
+$('#open-skins').onclick = () => showDialog('skins-dialog');
 $('#open-help').onclick = () => showDialog('help-dialog');
 $('#open-account').hidden = !window.yinampDesktop;
 let desktopAccount = { status: 'checking', playerStatus: 'checking' };

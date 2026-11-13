@@ -132,7 +132,7 @@ export function setupMusicLibrary({ onPlay, onSong, onSignIn, pinnedSearches = [
       if (search) {
         const warning = data.failedCategories?.length ? 'Some playlist sources could not load. Refresh to retry.' : data.unavailableCategories?.length ? 'Showing the sources available for this search.' : '';
         message(warning || (data.partial ? search.pages >= 10 ? 'Showing the first 10 pages per source.' : 'More results are available below.' : 'Search complete.'), Boolean(data.failedCategories?.length));
-      } else message(data.ownerFilterUnavailable ? 'Your channel identity could not be verified, so owner filtering was not applied. Refresh to retry.' : data.partial ? 'Showing the available portion of this collection. Refresh to retry loading more.' : 'Choose a playlist to replace the queue and start listening.');
+      } else message(data.ownerFilterUnavailable ? 'Your channel identity could not be verified, so owner filtering was not applied. Refresh to retry.' : data.partial ? 'Showing the available portion of this collection. Refresh to retry loading more.' : '');
 
     } catch (error) {
       if (version !== request) return;

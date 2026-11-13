@@ -5,6 +5,8 @@ coverage/
 test-results/
 work/qa/
 .history
+# Local Claude Code settings and worktrees
+.claude/
 
 # Generated demo and local credentials
 dist/

@@ -2,13 +2,11 @@
 
 # ϟ yinamp
 
-**Less feed. More music. Back to the desktop.**
-
 A tiny pet project with one foot in the 2000s and the other in a YouTube queue.
 
 [Download the latest build](https://github.com/KutnerUri/yinamp/releases/tag/latest-build) · [Try the demo](https://kutneruri.github.io/yinamp/) · [Get it running](#press-play) · [Player guide](docs/player-guide.md) · [MIT license](LICENSE)
 
-![Yinamp browser demo: classic gray windows, green display, equalizer and playlist editor](docs/images/yinamp-player.jpg)
+![Yinamp playing Rick Astley — Never Gonna Give You Up: classic gray windows, green display, equalizer, video, and playlist editor](docs/images/yinamp-player.webp)
 
 _Best viewed with your favorite skin and a completely unreasonable attachment to desktop music players._
 

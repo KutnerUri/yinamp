@@ -14,7 +14,7 @@ export function selectTargets(files) {
       (/^(electron|src|skins|build|tests|launcher)\//.test(file) && file !== 'src/pages-demo.js') ||
       /^[^/]+\.mjs$/.test(file) || file === 'electron-builder.yml' ||
       /^scripts\/(build-(desktop|compact|universal-mac)|check-universal-mac|electron-runtime|prepare-build|create-update|publish-latest)\.mjs$/.test(file) || file === 'scripts/report-desktop.cjs'),
-    demo: files.some(file => shared(file) || /^(src|skins)\//.test(file) || ['scripts/build-pages.mjs', 'app-version.mjs'].includes(file)),
+    demo: files.some(file => shared(file) || /^(src|skins)\//.test(file) || ['scripts/build-pages.mjs', 'app-version.mjs', 'docs/images/yinamp-og.png'].includes(file)),
   };
 }
 
