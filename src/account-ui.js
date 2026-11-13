@@ -7,7 +7,10 @@ export function renderAccount(data, root = document) {
   const connection = data.needsRefresh ? 'Channel changed' : signedIn ? data.premium ? 'YouTube Premium' : 'YouTube' : signedOut ? 'Signed out' : 'Checking login…';
   $('#account-label').textContent = signedIn && data.name ? data.name : label;
   $('#account-connection').textContent = connection;
-  $('#open-account').setAttribute('aria-label', `${label} — ${connection}. Account options`);
+  // A login problem only marks the chip; the details are in the Account dialog.
+  $('#account-issue').hidden = !data.issue;
+  $('#open-account').dataset.issue = String(Boolean(data.issue));
+  $('#open-account').setAttribute('aria-label', `${label} — ${connection}.${data.issue ? ' Login problem.' : ''} Account options`);
   $('#open-account').dataset.connected = String(connected);
   for (const [imageId, fallbackId] of [['account-avatar', 'account-avatar-fallback'], ['account-profile-avatar', 'account-profile-fallback']]) {
     const image = $(`#${imageId}`), fallback = $(`#${fallbackId}`);

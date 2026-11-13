@@ -32,7 +32,6 @@ const volumeSync = createVolumeSync();
 let stopped = false;
 let hasError = false;
 let wantsPlayback = false;
-let noticeTimeout;
 let playlistImport;
 // Playlist feedback: a removed track's undo slot, a flashing row, and a note on the track count.
 // Fade timings follow the golden ratio: φ⁻² s in, φ⁻¹ s out.
@@ -51,21 +50,17 @@ let switchTimer;
 let switchFallback = null;
 const currentTrack = () => state.playlist.find(track => track.id === ui.selectedId.value);
 
-function notify(message, error = false) {
-  clearTimeout(noticeTimeout);
-  $('#notice').textContent = message;
-  $('#notice').dataset.error = String(error);
-  noticeTimeout = setTimeout(() => { $('#notice').textContent = ''; }, 8000);
-}
+// Nothing is kept while storage fails, so say so for as long as it lasts (a later successful save clears it).
+function setStorageWarning(failing) { $('#storage-warning').hidden = !failing; }
 const persistence = createDebouncedSave(saveState);
 const persist = persistence.schedule;
 function saveState() {
   const saved = snapshot();
   try {
-    if (window.yinampDesktop) window.yinampDesktop.saveState(saved).catch(() => notify('Desktop settings could not be saved. Use SAVE to export a copy.', true));
-    else localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    if (window.yinampDesktop) window.yinampDesktop.saveState(saved).then(() => setStorageWarning(false), () => setStorageWarning(true));
+    else { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); storageAvailable = true; setStorageWarning(false); }
   }
-  catch { if (storageAvailable) notify('Browser storage is full or unavailable. Export your playlist to keep a copy.', true); storageAvailable = false; }
+  catch { storageAvailable = false; setStorageWarning(true); }
 }
 
 const visualizer = setupVisualizer($('#visualizer'), { simulated: !window.yinampDesktop });
@@ -142,7 +137,7 @@ const player = new Player({
       ui.playback.value = fallback.autoplay ? (unchanged ? 'PLAYING' : 'BUFFERING') : 'PAUSED';
       $('#youtube-link').href = `https://www.youtube.com/watch?v=${playingId}`;
       renderVersions();
-      notify('That recording could not play. Kept your preference and the matched versions.', true);
+      flashAttention($('#version-video'), 'error-flash');
       return;
     }
     playIntentPending = false;
@@ -185,7 +180,7 @@ const player = new Player({
     renderVersions();
     wantsPlayback = false;
     playbackRequested = false;
-    notify('Your browser paused autoplay. Press play in the video window to start.');
+    $('#play').classList.add('attention');
   },
 });
 equalizerControls = setupEqualizer({ state, player, persist });
@@ -424,6 +419,7 @@ function renderPlaylist() {
   $('#playlist-summary').title = summaryNote?.title ?? '';
   $('#retry-unavailable').hidden = !unavailableCount;
   $('#clear-playlist').hidden = !state.playlist.length;
+  updateAccountRefresh();
   if (focusedGhost) list.querySelector(`.playlist-removed[data-ghost-id="${CSS.escape(focusedGhost)}"] button`)?.focus({ preventScroll: true });
   else if (focusedId && focusedAction) list.querySelector(`[data-track-id="${focusedId}"] [data-action="${focusedAction}"]`)?.focus({ preventScroll: true });
   refreshPlaylistNavigation();
@@ -535,6 +531,15 @@ function leaveGhost(ghost) {
     if (position >= 0) (list.children[Math.min(position, list.children.length - 1)]?.querySelector('button') ?? $('#playlist-add')).focus({ preventScroll: true });
   }, GHOST_OUT_MS);
 }
+function updateAccountRefresh() {
+  const refresh = $('#account-refresh');
+  refresh.disabled = !state.playlist.length;
+  refresh.title = state.playlist.length ? '' : 'Add a track first: the player session is checked with a track.';
+}
+function flashAttention(element, className) {
+  element.classList.remove(className); void element.offsetWidth; element.classList.add(className);
+  element.addEventListener('animationend', () => element.classList.remove(className), { once: true });
+}
 function resetToEmpty() {
   clearTimeout(skipTimer); ui.selectedId.value = null; stopped = true; wantsPlayback = false; playbackRequested = false;
   ui.playback.value = 'EMPTY'; clearPlayerError(); loadRecording(null); void resolveVersions(); updateTrack();
@@ -644,12 +649,10 @@ $('#open-skins').onclick = () => showDialog('skins-dialog');
 $('#open-help').onclick = () => showDialog('help-dialog');
 $('#open-account').hidden = !window.yinampDesktop;
 let desktopAccount = { status: 'checking', playerStatus: 'checking' };
-let accountIssue = '';
 function updateAccount(data) {
   desktopAccount = data; renderAccount(data);
   musicLibrary?.accountChanged(data);
-  if (data.issue && data.issue !== accountIssue) notify(data.issue, true);
-  accountIssue = data.issue || '';
+
 }
 async function checkAccount() { try { updateAccount(await window.yinampDesktop.account('status')); } catch { renderAccount({ ...desktopAccount, issue: 'Login status could not be checked. Try again.' }); } }
 if (window.yinampDesktop) {
@@ -670,9 +673,10 @@ async function accountAction(action) {
   try {
     const result = await window.yinampDesktop.account(action);
     if (action !== 'diagnostics') $('#account-dialog').close();
-    if (action !== 'diagnostics') notify(action === 'refresh' ? result.refreshed ? 'Updating the player session. Press Play when ready.' : 'Add a track to check the player session.' : action === 'sign-out' ? 'Signed out of Yinamp. Your playlists and browser accounts are unchanged.' : result.opened === false ? 'Account window closed. Press Play to resume.' : action === 'switch' ? 'Choose your channel in the YouTube window. Yinamp will update automatically.' : 'Complete sign-in in the YouTube account window. Close it when done, then press Play.');
+    // The account window and the chip show what happens next; a stopped track waits for ▶.
+    if (!['diagnostics', 'sign-out'].includes(action) && currentTrack() && ui.playback.value !== 'PLAYING') $('#play').classList.add('attention');
   } catch (error) { $('#account-error').textContent = error.message; $('#account-error').hidden = false; }
-  finally { buttons.forEach(button => { button.disabled = false; }); }
+  finally { buttons.forEach(button => { button.disabled = false; }); updateAccountRefresh(); }
 }
 $('#account-sign-in').onclick = () => accountAction('open');
 $('#account-switch').onclick = () => accountAction('switch');
@@ -691,7 +695,9 @@ musicLibrary = setupMusicLibrary({ pinnedSearches: state.pinnedSearches, onPinsC
 }, isQueued: id => state.playlist.some(track => track.id === id), onUnqueue: item => removeTrack(item.id), onSignIn: () => accountAction('library'), onLayout: () => panels.refresh() });
 $('#reset-layout').onclick = () => panels.reset();
 $('#compact-main').onclick = () => { const body = $('#main-body'); body.hidden = !body.hidden; $('#compact-main').setAttribute('aria-expanded', String(!body.hidden)); panels.refresh(); };
-$('#fullscreen').onclick = async () => { if (window.yinampDesktop) { player.fullscreen(); return; } try { if (document.fullscreenElement) await document.exitFullscreen(); else await $('#video-viewport').requestFullscreen(); } catch { notify('Use the fullscreen button inside the YouTube video on this browser.'); } };
+// The browser may not allow fullscreen for the video window; then only YouTube's own button is offered.
+$('#fullscreen').hidden = !window.yinampDesktop && !document.fullscreenEnabled;
+$('#fullscreen').onclick = async () => { if (window.yinampDesktop) { player.fullscreen(); return; } try { if (document.fullscreenElement) await document.exitFullscreen(); else await $('#video-viewport').requestFullscreen(); } catch { /* YouTube's own fullscreen button still works inside the video. */ } };
 $('#play').onclick = play; $('#pause').onclick = pause; $('#stop').onclick = stop;
 $('#next').onclick = () => navigate(1); $('#previous').onclick = () => navigate(-1);
 $('#volume').oninput = event => setVolume(event.target.value);
@@ -937,14 +943,15 @@ $('#skin-file').onchange = async event => {
   } catch (error) { $('#skin-error').textContent = error instanceof SyntaxError ? 'That file is not valid JSON.' : error.message; $('#skin-error').hidden = false; }
 };
 $('#export-playlist').onclick = () => download({ version: 1, name: 'Yinamp playlist', tracks: state.playlist }, 'yinamp-playlist.json');
-$('#import-playlist').onclick = () => $('#playlist-file').click();
+$('#import-playlist').onclick = () => { $('#add-error').hidden = true; $('#playlist-file').click(); };
 $('#clear-playlist').onclick = clearPlaylist;
 $('#playlist-file').onchange = async event => {
   const file = event.target.files[0]; event.target.value = ''; if (!file) return;
   try {
-    if (file.size > 1048576) throw new Error('Playlist files must be smaller than 1 MB.');
+    // Name the file in every error: the dialog is gone by the time the message shows.
+    if (file.size > 1048576) throw new Error(`Couldn’t load “${file.name}”: playlist files must be under 1 MB.`);
     const data = JSON.parse(await file.text());
-    if (data.version !== 1 || !Array.isArray(data.tracks) || data.tracks.length > 500 || data.tracks.some(track => !track || !/^[\w-]{11}$/.test(track.id))) throw new Error('Use a Yinamp playlist JSON file with up to 500 valid videos.');
+    if (data.version !== 1 || !Array.isArray(data.tracks) || data.tracks.length > 500 || data.tracks.some(track => !track || !/^[\w-]{11}$/.test(track.id))) throw new Error(`Couldn’t load “${file.name}”: it isn’t a Yinamp playlist with up to 500 videos.`);
     const imported = initialState({ version: 2, playlist: data.tracks });
     resetEmbedFailures(imported.playlist);
     stop(); state.activePlaylist = null; state.playlist = imported.playlist; ui.selectedId.value = imported.selectedId;
@@ -952,7 +959,7 @@ $('#playlist-file').onchange = async event => {
     if (currentTrack()) selectTrack(ui.selectedId.value);
     else { loadRecording(null); void resolveVersions(); ui.playback.value = 'EMPTY'; updateTrack(); renderPlaylist(); persist(); }
     flashSummary();
-  } catch (error) { notify(error instanceof SyntaxError ? 'That file is not valid JSON.' : error.message, true); }
+  } catch (error) { showAddError(error instanceof SyntaxError ? `Couldn’t load “${file.name}”: it isn’t a Yinamp playlist file.` : error.message); }
 };
 
 document.addEventListener('keydown', event => {
@@ -965,11 +972,13 @@ document.addEventListener('keydown', event => {
 renderSkin(); renderPlaylist(); updateTrack();
 bindPlayerUI(ui, { onLayout: () => panels.refresh(), onInactive: () => visualizer.update() });
 effect(() => { ui.selectedId.value; refreshPlaylistNavigation(); });
+// ▶ pulses while Yinamp needs a press to start (autoplay blocked, after the account window); playing ends it.
+effect(() => { if (['PLAYING', 'EMPTY'].includes(ui.playback.value)) $('#play').classList.remove('attention'); });
 loadRecording(currentTrack(), false);
 player.initialize();
 void resolveVersions();
 setInterval(updateProgress, 350);
-if (!storageAvailable) notify('Browser storage is unavailable. Use SAVE to export your playlist.', true);
+if (!storageAvailable) setStorageWarning(true);
 window.addEventListener('pagehide', persistence.flush);
 window.addEventListener('beforeunload', persistence.flush);
 document.addEventListener('visibilitychange', () => { if (document.hidden) persistence.flush(); });
