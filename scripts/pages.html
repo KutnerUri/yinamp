@@ -1,0 +1,46 @@
+<!--
+  Demo-only HTML for the GitHub Pages build (scripts/build-pages.mjs).
+  Each template below goes where index.html has the "pages:" comment marker with the same id:
+  a lone marker is replaced by the template's content; a marker pair ("pages:ID" … "/pages:ID")
+  is replaced together with what it wraps. Double-brace placeholders are filled in and HTML-escaped by the build.
+-->
+
+<!-- Search title and description; replace the desktop app's own. -->
+<template id="meta">
+  <meta name="description" content="{{description}}">
+  <title>{{title}}</title>
+</template>
+
+<!-- Search Console ownership, canonical URL, link previews, and structured data. -->
+<template id="head">
+  <meta name="google-site-verification" content="{{googleVerification}}">
+  <link rel="canonical" href="{{siteUrl}}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Yinamp">
+  <meta property="og:url" content="{{siteUrl}}">
+  <meta property="og:title" content="{{title}}">
+  <meta property="og:description" content="{{description}}">
+  <meta property="og:image" content="{{image}}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The Yinamp main player window playing Rick Astley — Never Gonna Give You Up">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">{{structuredData}}</script>
+</template>
+
+<!-- Download banner at the top of the page. -->
+<template id="body">
+  <aside class="demo-banner" aria-label="Desktop app downloads">
+    <p><strong>✦ LIVE BROWSER DEMO</strong> · Get the desktop app for your library &amp; live search.</p>
+    <div class="demo-downloads">
+      <a id="desktop-download" class="download-button" href="{{repoUrl}}/releases/tag/latest-build">Download desktop app ↗</a>
+      <span id="mac-downloads" hidden><a href="{{repoUrl}}/releases/download/latest-build/Yinamp-latest-mac-universal.dmg">Download for macOS</a> (Apple Silicon and Intel)</span>
+      <a class="all-downloads" href="{{repoUrl}}/releases/tag/latest-build">All downloads ↗</a>
+    </div>
+  </aside>
+</template>
+
+<!-- What Yinamp is, in words search engines can read. -->
+<template id="intro">
+  <p class="intro-lede">Yinamp is a free, open-source music player for YouTube in the spirit of Winamp: skins, draggable windows, and playlists you can save and share. Try it here, or get the desktop app for your YouTube Music library.</p>
+</template>

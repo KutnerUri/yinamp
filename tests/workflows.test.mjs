@@ -16,7 +16,7 @@ test('changed files select desktop and demo independently', () => {
   for (const file of ['launcher/main.go', 'electron/main.mjs', 'scripts/build-universal-mac.mjs', 'tests/desktop/lifecycle.mjs', 'electron-builder.yml']) {
     assert.deepEqual(selectTargets([file]), { desktop: true, demo: false }, file);
   }
-  for (const file of ['src/pages-demo.js', 'scripts/build-pages.mjs']) assert.deepEqual(selectTargets([file]), { desktop: false, demo: true });
+  for (const file of ['src/pages-demo.js', 'scripts/build-pages.mjs', 'scripts/pages.html']) assert.deepEqual(selectTargets([file]), { desktop: false, demo: true });
   assert.deepEqual(selectTargets(['docs/ci.md']), { desktop: false, demo: false });
 });
 
