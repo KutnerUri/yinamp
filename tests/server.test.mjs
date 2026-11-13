@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { once } from 'node:events';
-import { createAppServer } from '../server.mjs';
+import { createAppServer, musicUserAgent } from '../server.mjs';
 import { playlistPage } from './fixtures/playlist.mjs';
 
 async function withServer(fetcher, run) {
@@ -102,4 +102,15 @@ test('playlist listing fallback validates its ID and fetches only the public You
     assert.equal(requests[0].origin, 'https://www.youtube.com');
     assert.equal(requests[0].pathname, '/playlist');
   });
+});
+
+test('YouTube Music requests forward real browser agents and replace headless or script agents', () => {
+  const chrome = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
+  const firefox = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0';
+  assert.equal(musicUserAgent(chrome), chrome);
+  assert.equal(musicUserAgent(firefox), firefox);
+  for (const agent of [chrome.replace('Chrome/', 'HeadlessChrome/'), 'curl/8.7.1', 'node', '', undefined]) {
+    assert.match(musicUserAgent(agent), /^Mozilla\/5\.0 .*Chrome\/\d/);
+    assert.doesNotMatch(musicUserAgent(agent), /Headless/);
+  }
 });

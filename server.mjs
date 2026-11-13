@@ -12,6 +12,10 @@ import { PlaylistCache } from './src/playlist-cache.js';
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 const metadataCache = new Map();
+// YouTube Music serves a data-less stub page to agents it does not treat as a regular browser
+// (headless Chrome, curl, scripts), so forward the visitor's agent only when it looks like one.
+const DEFAULT_BROWSER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
+export const musicUserAgent = agent => typeof agent === 'string' && /^Mozilla\/5\.0 /.test(agent) && !/Headless/i.test(agent) ? agent : DEFAULT_BROWSER_AGENT;
 
 export function createAppServer({ fetcher = fetch } = {}) {
   const catalogCache = new PlaylistCache(), playlistCache = new PlaylistCache();
@@ -69,7 +73,7 @@ export function createAppServer({ fetcher = fetch } = {}) {
           const endpoint = new URL(music ? 'https://music.youtube.com/playlist' : 'https://www.youtube.com/playlist');
           endpoint.searchParams.set('list', id);
           endpoint.searchParams.set('hl', 'en');
-          const upstream = await fetcher(endpoint, { signal: AbortSignal.timeout(8000), ...(music ? { headers: { 'User-Agent': request.headers['user-agent'] || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36' } } : {}) });
+          const upstream = await fetcher(endpoint, { signal: AbortSignal.timeout(8000), ...(music ? { headers: { 'User-Agent': musicUserAgent(request.headers['user-agent']) } } : {}) });
           if (!upstream.ok) throw new Error('YouTube’s public playlist listing is unavailable. Please try again.');
           const html = await upstream.text();
           if (html.length > 5000000) throw new Error('This playlist listing is too large to import.');

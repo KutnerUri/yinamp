@@ -318,8 +318,9 @@ function renderPlaylist() {
   const header = $('#active-playlist');
   header.classList.toggle('pending-name', Boolean(loading && !loading.title));
   header.classList.toggle('pending-cover', Boolean(loading && !loading.thumbnail));
-  $('#active-playlist-name').textContent = identity ? identity.title : state.playlist.length ? 'Open a playlist to identify this queue.' : '';
-  header.hidden = !loading && !state.playlist.length;
+  // The header only shows a playlist (or the one loading); a queue of single songs has no name to show.
+  $('#active-playlist-name').textContent = identity ? identity.title : '';
+  header.hidden = !identity;
   header.title = identity?.title ?? '';
   const cover = $('#active-playlist-cover');
   if (cover.getAttribute('src') !== (identity?.thumbnail || null)) {
@@ -812,7 +813,9 @@ async function openOnlinePlaylist(value, autoplay = false, options = {}) {
       const source = await readPlaylistSource(value, options, requestId);
       if (options.signal?.aborted && !stream.list) throw new DOMException('Playlist import cancelled', 'AbortError');
       stream.sourceTitle = source.title;
-      const tracks = source.tracks ?? source.ids.map(trackId => ({ id: trackId }));
+      // Readers return the song IDs, the songs with details, or both (the browser's player reader gives IDs and an empty list).
+      const details = new Map((source.tracks ?? []).map(track => [track.id, track]));
+      const tracks = (source.ids ?? (source.tracks ?? []).map(track => track.id)).map(trackId => details.get(trackId) ?? { id: trackId });
       if (!addStreamedTracks(stream, tracks) && !stream.list) throw new Error('No available songs were found. Your previous queue is unchanged.');
       markApplied();
       return { partial: source.partial || stream.overflow > 0, count: stream.list?.length ?? 0, list: stream.list };
