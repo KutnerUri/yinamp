@@ -6,7 +6,8 @@ import { RELEASES, compatible, newer } from './update-store.mjs';
 export function createUpdateController(store, { preview = false } = {}) {
   let restartRequested = false;
   let status = '', busy = false, builds = store.state.recentBuilds ?? [], needsDesktop = false, rebuild = () => {}, startupTimer, healthTimer, checkTimer, stopped = false, scheduleGeneration = 0;
-  const label = metadata => metadata?.number ? `${metadata.version} · Build ${metadata.number}.${metadata.attempt}` : `${metadata?.version ?? app.getVersion()} · ${preview ? 'Development' : 'Local build'}`;
+  // The version identifies the code; the run number (metadata.number) only orders updates internally.
+  const label = metadata => metadata?.number ? metadata.version : `${metadata?.version ?? app.getVersion()} · ${preview ? 'Development' : 'Local build'}`;
   const refresh = () => rebuild();
   const message = text => dialog.showMessageBox({ type: 'info', title: 'Yinamp versions', message: text });
   async function scheduleCheck() {

@@ -50,6 +50,7 @@ test('main publishes a stable immutable release', nativeShell, async t => {
   assert.equal(result.status, 0, result.stderr);
   const command = commands.find(args => args[1] === 'create' && args[2] === 'build-123-1');
   assert.ok(command.includes('--prerelease=false'));
+  assert.equal(command[command.indexOf('--title') + 1], '1.2.0', 'the title is the version alone, without the run number');
 });
 
 test('branch previews publish as prereleases and never modify the main feed', nativeShell, async t => {
