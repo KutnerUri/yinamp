@@ -15,7 +15,7 @@ html = html.replaceAll('"/src/', '"./src/').replace('<script type="module" src="
 html = html.replace('href="/"', 'href="./"');
 // Search and share metadata (the demo is the public landing page; the desktop app keeps its own title).
 const [owner = 'KutnerUri', repo = 'yinamp'] = (process.env.GITHUB_REPOSITORY || '').split('/').filter(Boolean);
-const siteUrl = process.env.YINAMP_SITE_URL || `https://${owner.toLowerCase()}.github.io/${repo}/`;
+const siteUrl = process.env.YINAMP_SITE_URL || 'https://yinamp.nefzen.dev/';
 const repoUrl = `https://github.com/${owner}/${repo}`;
 const description = 'Yinamp is a free, open-source, Winamp-inspired music player for YouTube and YouTube Music. Skinnable, draggable windows, playlists, and a desktop app for macOS, Windows, and Linux.';
 const image = `${siteUrl}og-image.png`;

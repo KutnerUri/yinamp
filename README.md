@@ -4,7 +4,7 @@
 
 A tiny pet project with one foot in the 2000s and the other in a YouTube queue.
 
-[Download the latest build](https://github.com/KutnerUri/yinamp/releases/tag/latest-build) · [Try the demo](https://kutneruri.github.io/yinamp/) · [Get it running](#press-play) · [Player guide](docs/player-guide.md) · [MIT license](LICENSE)
+[Download the latest build](https://github.com/KutnerUri/yinamp/releases/tag/latest-build) · [Try the demo](https://yinamp.nefzen.dev/) · [Get it running](#press-play) · [Player guide](docs/player-guide.md) · [MIT license](LICENSE)
 
 ![Yinamp playing Rick Astley — Never Gonna Give You Up: classic gray windows, green display, equalizer, video, and playlist editor](docs/images/yinamp-player.webp)
 
