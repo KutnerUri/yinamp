@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export function selectTargets(files) {
-  const shared = file => /^\.github\/workflows\//.test(file) || ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', '.node-version', '.nvmrc', 'index.html', 'LICENSE', 'scripts/ci-changes.mjs', 'scripts/desktop-version.mjs'].includes(file);
+  const shared = file => /^(\.github\/workflows|public)\//.test(file) || ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', '.node-version', '.nvmrc', 'index.html', 'LICENSE', 'scripts/ci-changes.mjs', 'scripts/desktop-version.mjs'].includes(file);
   return {
     desktop: files.some(file => shared(file) ||
       (/^(electron|src|skins|build|tests|launcher)\//.test(file) && file !== 'src/pages-demo.js') ||

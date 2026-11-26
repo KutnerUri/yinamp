@@ -10,7 +10,7 @@ import { selectTargets } from '../scripts/ci-changes.mjs';
 const yaml = createRequire(import.meta.resolve('electron-builder'))('js-yaml');
 const workflow = async name => yaml.load(await readFile(new URL(`../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
 test('changed files select desktop and demo independently', () => {
-  for (const file of ['src/app.js', 'skins/default.json', 'index.html', 'package.json', '.github/workflows/package-desktop.yml', 'scripts/desktop-version.mjs']) {
+  for (const file of ['src/app.js', 'skins/default.json', 'index.html', 'public/favicon.svg', 'package.json', '.github/workflows/package-desktop.yml', 'scripts/desktop-version.mjs']) {
     assert.deepEqual(selectTargets([file]), { desktop: true, demo: true }, file);
   }
   for (const file of ['launcher/main.go', 'electron/main.mjs', 'scripts/build-universal-mac.mjs', 'tests/desktop/lifecycle.mjs', 'electron-builder.yml']) {

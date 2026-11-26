@@ -16,7 +16,7 @@ server.listen(0, '127.0.0.1');
 await once(server, 'listening');
 try {
   const origin = `http://127.0.0.1:${server.address().port}`;
-  for (const path of ['/', '/src/app.js', '/src/styles.css', '/src/app-icon.png', '/skins/classic.json', '/src/vendor/signals-core.js']) {
+  for (const path of ['/', '/src/app.js', '/src/styles.css', '/src/app-icon.png', '/favicon.svg', '/skins/classic.json', '/src/vendor/signals-core.js']) {
     const response = await fetch(origin + path);
     assert.equal(response.status, 200, `${path} must be bundled`);
     if (path.endsWith('.png')) {

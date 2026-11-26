@@ -12,7 +12,7 @@ await cp(fileURLToPath(import.meta.resolve('@preact/signals-core')), new URL('sr
 await cp(new URL('../node_modules/@preact/signals-core/LICENSE', import.meta.url), new URL('src/vendor/signals-core.LICENSE', output));
 let html = stampAppVersion(await readFile(new URL('index.html', root), 'utf8'));
 html = html.replaceAll('"/src/', '"./src/').replace('<script type="module" src="./src/app.js"></script>', '<script type="module" src="./src/pages-demo.js"></script>');
-html = html.replace('href="/"', 'href="./"');
+html = html.replace('href="/"', 'href="./"').replace('href="/favicon.svg"', 'href="./favicon.svg"');
 // Search and share metadata (the demo is the public landing page; the desktop app keeps its own title).
 const [owner = 'KutnerUri', repo = 'yinamp'] = (process.env.GITHUB_REPOSITORY || '').split('/').filter(Boolean);
 const siteUrl = process.env.YINAMP_SITE_URL || 'https://yinamp.nefzen.dev/';
@@ -65,6 +65,10 @@ for (const [name, body] of sections) {
 if (/<!-- \/?pages:\w+ -->/.test(html)) throw new Error('build-pages: index.html has a "pages:" marker with no <template> in scripts/pages.html.');
 await writeFile(new URL('index.html', output), html);
 await cp(new URL('docs/images/yinamp-og.png', root), new URL('og-image.png', output));
+// public/ is served at the site root, as by the desktop server. Its favicon.ico, for clients that ignore
+// <link rel="icon">, is made from favicon.svg:
+// magick -background none -density 1536 public/favicon.svg -define icon:auto-resize=48,32,16 public/favicon.ico
+await cp(new URL('public/', root), output, { recursive: true });
 await writeFile(new URL('sitemap.xml', output), `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>${siteUrl}</loc><lastmod>${new Date().toISOString().slice(0, 10)}</lastmod></url>

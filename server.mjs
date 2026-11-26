@@ -10,7 +10,7 @@ import { searchMusic, suggestMusic, discoverMusicPlaylists } from './music-query
 import { PlaylistCache } from './src/playlist-cache.js';
 
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
-const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 const metadataCache = new Map();
 // YouTube Music serves a data-less stub page to agents it does not treat as a regular browser
 // (headless Chrome, curl, scripts), so forward the visitor's agent only when it looks like one.
@@ -141,8 +141,11 @@ export function createAppServer({ fetcher = fetch } = {}) {
         }
       }
       const pathname = decodeURIComponent(url.pathname);
-      const asset = pathname === '/' ? 'index.html' : pathname.slice(1);
-      if (asset !== 'index.html' && !/^(src|skins)\/[a-zA-Z0-9_./-]+$/.test(asset)) return send(404, 'Not found', 'text/plain');
+      // Top-level names other than index.html come from public/ (favicons and the like), as on the demo site.
+      const name = pathname === '/' ? 'index.html' : pathname.slice(1);
+      const top = name !== 'index.html' && /^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(name);
+      const asset = top ? `public/${name}` : name;
+      if (!top && asset !== 'index.html' && !/^(src|skins)\/[a-zA-Z0-9_./-]+$/.test(asset)) return send(404, 'Not found', 'text/plain');
       const path = resolve(root, asset);
       if (!path.startsWith(root + sep) || asset.split('/').some(part => part.startsWith('.'))) return send(404, 'Not found', 'text/plain');
       const type = mime[extname(path)];

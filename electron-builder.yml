@@ -15,6 +15,7 @@ files:
   - '!electron/dev-branding.mjs'
   - src/**
   - skins/**
+  - public/**
 asar: true
 npmRebuild: false
 artifactName: Yinamp-latest-${os}-${arch}.${ext}
